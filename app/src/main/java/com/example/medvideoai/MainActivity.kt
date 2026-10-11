@@ -357,24 +357,10 @@ private fun MedicalNotesScreen() {
                                 summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
                             notes = formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized))
-                            status = "AI notes received. Finding suitable medical illustrations..."
-                            visualLookupBusy = true
                             topicVisuals = emptyList()
-                            try {
-                                val hints = notes!!.sections.mapNotNull { it.visualHint }.distinct().take(3)
-                                topicVisuals = withContext(Dispatchers.IO) { findMedicalVisuals(hints) }
-                                visualLookupStatus = if (topicVisuals.isEmpty()) {
-                                    "No suitable online illustrations found; notes and PDF are still available."
-                                } else {
-                                    "Found ${topicVisuals.size} medical illustration(s). They will be added to the PDF."
-                                }
-                                status = "AI notes ready. ${visualLookupStatus} Review medical accuracy before saving."
-                            } catch (visualError: Exception) {
-                                visualLookupStatus = "Illustrations unavailable: ${visualError.message ?: "network error"}"
-                                status = "AI notes ready. ${visualLookupStatus}"
-                            } finally {
-                                visualLookupBusy = false
-                            }
+                            visualLookupStatus = ""
+                            visualLookupBusy = false
+                            status = "AI notes ready using only your supplied text/image. Review before saving the PDF."
                         } catch (e: Exception) {
                             val detail = e.message ?: "unknown error"
                             status = when {
@@ -395,25 +381,6 @@ private fun MedicalNotesScreen() {
             if (busy) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator()
                 Text("Formatting notes...")
-            }
-            if (visualLookupBusy) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    CircularProgressIndicator()
-                    Text("Finding relevant medical illustrations...")
-                }
-            }
-            if (visualLookupStatus.isNotBlank()) Text(visualLookupStatus, style = MaterialTheme.typography.bodySmall)
-            if (topicVisuals.isNotEmpty()) {
-                Text("Relevant illustrations", style = MaterialTheme.typography.titleMedium)
-                topicVisuals.forEach { visual ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Image(bitmap = visual.bitmap.asImageBitmap(), contentDescription = visual.title, modifier = Modifier.size(112.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(visual.title, style = MaterialTheme.typography.titleSmall)
-                            Text("Wikimedia Commons · online image", style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {

@@ -902,7 +902,9 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
         "Important Points" to listOf("important points", "high-yield points", "key points", "important", "exam points")
     )
     val buckets = linkedMapOf<String, MutableList<String>>()
-    var current = "Important Points"
+    // Unstructured/plain input is not automatically treated as high-priority Important Points.
+    // If headings are detected, their own buckets will be used instead.
+    var current = "Key Points"
     buckets[current] = mutableListOf()
 
     raw.lines().map { it.trim() }.filter { it.isNotBlank() }.forEach { originalLine ->

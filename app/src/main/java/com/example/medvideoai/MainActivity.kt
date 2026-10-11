@@ -611,7 +611,7 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
             )
             .map { it.id }
             .distinct()
-            .take(5)
+            .take(2)
         if (candidates.isEmpty()) {
             throw IllegalStateException("Google returned no Gemini models that support generateContent. Tap Refresh models available to my API key and check the API key/project.")
         }
@@ -641,7 +641,7 @@ private fun summarizeWithGeminiWithRetry(
     imageBase64: String?
 ): String {
     var lastError: Exception? = null
-    for (attempt in 0..3) {
+    for (attempt in 0..1) {
         try {
             return summarizeWithGeminiSingleAttempt(apiKey, topic, sourceText, modelId, imageMimeType, imageBase64)
         } catch (e: Exception) {
@@ -653,8 +653,8 @@ private fun summarizeWithGeminiWithRetry(
                 message.contains("timed out", ignoreCase = true) ||
                 message.contains("timeout", ignoreCase = true)
             if (!temporary || attempt == 3) throw e
-            // Exponential backoff plus small jitter: 1s, 2s, 4s, then stop.
-            val delayMs = (1000L shl attempt) + (0L..500L).random()
+            // Keep retries short so image notes do not appear to hang.
+            val delayMs = 400L + (0L..200L).random()
             Thread.sleep(delayMs)
         }
     }

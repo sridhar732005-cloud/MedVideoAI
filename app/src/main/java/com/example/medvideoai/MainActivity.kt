@@ -675,7 +675,7 @@ private fun summarizeWithGeminiSingleAttempt(
         LENGTH AND COVERAGE: make concise but understandable notes, while preserving every relevant heading and every legible item from the supplied source. If it lists 5 symptoms, retain all 5; if it lists 10 causes, retain all 10. Never silently omit source-listed points or replace a list with a few examples. Add a brief explanation only where it helps understanding.
         SOURCE ACCURACY: use only facts readable in the supplied image or pasted text. Preserve a supplied definition as written when legible. Do not invent doses, lab values, treatments, causes, symptoms, or unreadable details. Explain why a listed symptom or cause occurs only when supported by the provided material; otherwise do not guess.
         INPUT ANALYSIS: quickly inspect the complete supplied image/text. Preserve the exact source topic title and exact section headings as printed, including spelling, wording, order, and hierarchy. Do not rename "Causes" to "Etiology", "Symptoms" to "Clinical Features", or any other heading. Keep Definition text verbatim. Preserve every readable item, number, stage, classification type, symptom, cause, and test name; never omit items to shorten the notes. If the image contains four tests, list those same four tests. If an item is unclear, mark only that item as [unclear in source] instead of guessing.
-        OUTPUT RULES: return plain text with the original headings copied exactly, each on its own line. Keep every listed item under its original heading and order. For each source item, add a short explanation only when the supplied source supports it. Do not add headings that are not in the source, except "Important Points" for a few clearly relevant exam tips; do not add any external facts or references. Preserve a source flow/sequence with arrows but do not alter the underlying steps.
+        OUTPUT RULES: first line must be the exact main topic title/headline visible in the source image (or exact topic supplied in text). Then copy each original heading exactly as printed, preserving spelling, order, wording and hierarchy; never rename or standardize a heading. Keep every listed item under its original heading and order. For each source item, add a short explanation only when the supplied source supports it. Do not add headings not present in the source, and do not add external facts or references. Preserve source flow/sequence with arrows without altering steps.
         FLOWCHARTS: use arrows (→) whenever sequence, cause-and-effect, mechanism, progression, diagnostic decision, or treatment response is being explained. Do not force a flowchart for simple lists or definitions.
         PRIORITY: correctness and topic analysis first; concise high-yield points second; attractive formatting is handled by the app. Return notes only, no opening or closing commentary.
         TOPIC: $topic
@@ -902,9 +902,17 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
             }
         }
         if (matched != null) {
-            current = matched.first
+            // Keep the heading label as the source/Gemini wrote it; use canonical meaning only for styling.
+            current = clean.substringBefore(':').substringBefore(" -").substringBefore(" —").trim()
+                .ifBlank { matched.first }
             buckets.getOrPut(current) { mutableListOf() }
             if (matched.third.isNotBlank()) buckets.getValue(current).add(matched.third)
+        } else if (
+            clean.endsWith(":") && clean.length <= 55 &&
+            !clean.startsWith("http", ignoreCase = true)
+        ) {
+            current = clean.removeSuffix(":").trim()
+            buckets.getOrPut(current) { mutableListOf() }
         } else {
             buckets.getOrPut(current) { mutableListOf() }.add(clean)
         }
@@ -913,18 +921,28 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val sections = buckets.mapNotNull { (name, rawLines) ->
         if (rawLines.isEmpty()) return@mapNotNull null
 
-        val isDefinition = name == "Definition"
-        val isMindMap = name == "Etiology / Causes" || name == "Classification" ||
-            name == "Mechanism of Action" || name == "Pathogenesis"
-        val isImportant = name == "Important Points"
-        val flow = flowSectionFor(name)
+        val normalizedName = name.lowercase(Locale.ROOT).trim()
+        val isDefinition = normalizedName == "definition" || normalizedName == "meaning"
+        val isMindMap = normalizedName in setOf(
+            "etiology / causes", "etiology", "causes", "cause", "classification", "types", "type",
+            "mechanism of action", "mechanism", "pathogenesis", "pathophysiology"
+        )
+        val isImportant = normalizedName in setOf("important points", "high-yield points", "key points", "important")
+        val flow = normalizedName in setOf("mechanism of action", "mechanism", "pathogenesis", "pathophysiology")
         val units = if (isDefinition) rawLines else rawLines.flatMap { line ->
             val arrowParts = line.split(Regex("\\s*(?:→|->|⟶)\\s*")).filter { it.isNotBlank() }
             if (flow && arrowParts.size > 1) arrowParts else splitSentences(line)
         }
         val cleanedUnits = units.map { it.trim().trimStart('•', '-', '*').trim() }.filter { it.isNotBlank() }
-        val selected = if (isDefinition || isMindMap || isImportant || name == "Treatment" || name == "Prevention") cleanedUnits
-            else selectKeySentences(name, cleanedUnits)
+        val preserveAll = isDefinition || isMindMap || isImportant ||
+            normalizedName.contains("treatment") || normalizedName.contains("management") ||
+            normalizedName.contains("prevention") || normalizedName.contains("symptom") ||
+            normalizedName.contains("clinical") || normalizedName.contains("sign") ||
+            normalizedName.contains("stage") || normalizedName.contains("investigation") ||
+            normalizedName.contains("test") || normalizedName.contains("classification") ||
+            normalizedName.contains("cause") || normalizedName.contains("etiology") ||
+            normalizedName.contains("complication")
+        val selected = if (preserveAll) cleanedUnits else selectKeySentences(name, cleanedUnits)
         val finalLines = if (flow) normalizeFlowchart(selected) else selected
         if (finalLines.isEmpty()) null else NoteSection(
             name,

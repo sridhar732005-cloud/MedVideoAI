@@ -35,6 +35,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
@@ -70,11 +79,13 @@ private data class MedicalNotes(val topic: String, val sections: List<NoteSectio
 private fun MedicalNotesScreen() {
     var topic by remember { mutableStateOf("") }
     var sourceText by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf<MedicalNotes?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
     val context = LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
         val bytes = pdfBytes
         if (uri != null && bytes != null) {
@@ -106,6 +117,14 @@ private fun MedicalNotesScreen() {
                 label = { Text("Paste English medical text") },
                 placeholder = { Text("Paste your topic text here in English...") }
             )
+            OutlinedTextField(
+                value = apiKey, onValueChange = { apiKey = it.trim(); status = "" },
+                modifier = Modifier.fillMaxWidth(), singleLine = true,
+                visualTransformation = PasswordVisualTransformation(),
+                label = { Text("Optional Gemini API key (not saved)") },
+                placeholder = { Text("Enter your own API key for AI summarization") }
+            )
+            Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
@@ -118,7 +137,30 @@ private fun MedicalNotesScreen() {
                     status = "Short notes created using only your text. Check the preview for context, then save the PDF."
                     busy = false
                 }
-            ) { Text("Make Short Notes") }
+            ) { Text("Make Short Notes (Offline)") }
+            Button(
+                enabled = sourceText.isNotBlank() && apiKey.isNotBlank() && !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    busy = true
+                    status = "Sending text for AI summarization..."
+                    val input = sourceText.trim()
+                    val title = topic.trim().ifBlank { inferTopic(input) }
+                    scope.launch {
+                        try {
+                            val summarized = withContext(Dispatchers.IO) {
+                                summarizeWithGemini(apiKey, title, input)
+                            }
+                            notes = formatMedicalNotes(title, summarized)
+                            status = "AI summary received. Compare the preview with your source before saving."
+                        } catch (e: Exception) {
+                            status = "AI summary failed: ${e.message ?: "unknown error"}. You can still use Offline Short Notes."
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) { Text("AI Summarize (Gemini API)") }
             if (busy) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator()
                 Text("Formatting notes...")
@@ -154,6 +196,59 @@ private fun MedicalNotesScreen() {
 
 
 private fun containsTamil(text: String): Boolean = text.any { it.code in 0x0B80..0x0BFF }
+
+private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String): String {
+    val prompt = """
+        You are formatting a medical student's notes.
+        Use ONLY the SOURCE TEXT below. Do not use outside sources, web browsing, or facts from your general knowledge.
+        Do not translate. Do not invent, correct, or supplement medical facts.
+        Preserve every definition verbatim exactly as it appears in the source (copy the definition wording and punctuation; do not paraphrase it).
+        Condense other sections into concise exam notes using only source-supported statements.
+        Keep causes/etiology as short bullet points. Preserve numbers, units, negations, uncertainty, qualifiers, drug names, doses, contraindications, and exceptions.
+        For Mechanism of Action and Pathogenesis, write a step-by-step sequence joined by ->, without adding steps.
+        Keep headings when present. If a fact is unclear, retain its original wording instead of guessing.
+        Return plain text only, with no introduction or conclusion.
+        TOPIC: $topic
+
+        SOURCE TEXT START
+        $sourceText
+        SOURCE TEXT END
+    """.trimIndent()
+    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
+        URLEncoder.encode(apiKey, "UTF-8")
+    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+        requestMethod = "POST"
+        connectTimeout = 20000
+        readTimeout = 60000
+        doOutput = true
+        setRequestProperty("Content-Type", "application/json; charset=UTF-8")
+    }
+    try {
+        val requestBody = JSONObject()
+            .put("contents", JSONArray().put(
+                JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
+            ))
+            .put("generationConfig", JSONObject().put("temperature", 0.1).put("maxOutputTokens", 8192))
+        connection.outputStream.use { it.write(requestBody.toString().toByteArray(Charsets.UTF_8)) }
+        val statusCode = connection.responseCode
+        val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+        val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (statusCode !in 200..299) {
+            val detail = runCatching { JSONObject(responseText).getJSONObject("error").optString("message") }.getOrNull()
+            throw IllegalStateException(detail?.takeIf { it.isNotBlank() } ?: "HTTP $statusCode")
+        }
+        val json = JSONObject(responseText)
+        val candidates = json.optJSONArray("candidates") ?: throw IllegalStateException("No summary returned")
+        val parts = candidates.optJSONObject(0)?.optJSONObject("content")?.optJSONArray("parts")
+            ?: throw IllegalStateException("The model returned no text")
+        val result = (0 until parts.length()).mapNotNull { parts.optJSONObject(it)?.optString("text") }
+            .filter { it.isNotBlank() }.joinToString("\n").trim()
+        if (result.isBlank()) throw IllegalStateException("The model returned an empty summary")
+        return result
+    } finally {
+        connection.disconnect()
+    }
+}
 
 private fun inferTopic(text: String): String {
     val first = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()

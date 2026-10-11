@@ -34,6 +34,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.google.mlkit.nl.translate.TranslateLanguage
 import com.google.mlkit.nl.translate.Translation
@@ -78,13 +79,13 @@ private fun MedicalNotesScreen() {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
-    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
         val bytes = pdfBytes
         if (uri != null && bytes != null) {
             try {
                 // The selected destination is controlled by the user through Android's document picker.
-                MainActivityHolder.context?.contentResolver?.openOutputStream(uri)?.use { it.write(bytes) }
+                context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("Could not open PDF destination")
                 status = "PDF saved successfully."
             } catch (e: Exception) {
                 status = "Could not save PDF: ${e.message ?: "unknown error"}"
@@ -184,8 +185,6 @@ private fun MedicalNotesScreen() {
     }
 }
 
-/** Kept only to access the activity's ContentResolver from the document-picker callback. */
-private object MainActivityHolder { var context: MainActivity? = null }
 
 private fun containsTamil(text: String): Boolean = text.any { it.code in 0x0B80..0x0BFF }
 

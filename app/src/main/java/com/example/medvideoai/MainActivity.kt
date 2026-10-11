@@ -313,7 +313,7 @@ private fun exportMedicalVideo(
     val frameCount = durationSeconds * fps
     val outputFile = File(context.cacheDir, "medvideo_${System.currentTimeMillis()}.mp4")
     val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
-        setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Flexible)
+        setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar)
         setInteger(MediaFormat.KEY_BIT_RATE, 650_000)
         setInteger(MediaFormat.KEY_FRAME_RATE, fps)
         setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 2)

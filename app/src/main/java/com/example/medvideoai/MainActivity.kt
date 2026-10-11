@@ -983,7 +983,8 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
             normalizedName.contains("stage") || normalizedName.contains("investigation") ||
             normalizedName.contains("test") || normalizedName.contains("classification") ||
             normalizedName.contains("cause") || normalizedName.contains("etiology") ||
-            normalizedName.contains("complication")
+            normalizedName.contains("complication") ||
+            normalizedName.contains("differentiation") || normalizedName.contains("comparison")
         val selected = if (preserveAll) cleanedUnits else selectKeySentences(name, cleanedUnits)
         val finalLines = if (flow) normalizeFlowchart(selected) else selected
         if (finalLines.isEmpty()) null else NoteSection(

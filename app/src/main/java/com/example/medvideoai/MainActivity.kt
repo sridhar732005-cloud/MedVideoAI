@@ -20,6 +20,10 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -124,8 +128,15 @@ private fun MedicalNotesScreen() {
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall)
-            Text("Paste long English medical text. There is no fixed 500-character app limit. Notes and PDF can span multiple pages; Gemini may still apply request/token limits. Offline notes preserve all detected sentences from your text. Definitions are kept verbatim and mechanisms/pathogenesis are shown as flowcharts.")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                TextButton(onClick = {
+                    topic = ""; sourceText = ""; apiKey = ""; selectedModel = geminiModelOptions.first()
+                    availableModels = geminiModelOptions; modelMenuExpanded = false; notes = null
+                    busy = false; status = ""; pdfBytes = null
+                }) { Text("↻ Refresh") }
+            }
+            Text("Paste long English medical text. There is no fixed 500-character app limit. Notes and PDF can span multiple pages; Gemini may still apply request/token limits. Offline mode preserves all detected sentences. Definitions are kept verbatim; causes and mechanisms are shown as mind maps.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,

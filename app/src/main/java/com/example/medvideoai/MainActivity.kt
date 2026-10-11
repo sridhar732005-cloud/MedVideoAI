@@ -240,7 +240,7 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         $sourceText
         SOURCE TEXT END
     """.trimIndent()
-    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
+    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
         URLEncoder.encode(apiKey, "UTF-8")
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"

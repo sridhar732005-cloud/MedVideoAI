@@ -24,7 +24,7 @@ object MedicalTextAnalyzer {
     }
 
     private fun splitIntoSentences(text: String): List<String> {
-        val normalized = text.replace("\\r\\n", "\\n").replace('；', ';')
+        val normalized = text.replace("\r\n", "\n").replace('；', ';')
         val parts = normalized.split(Regex("(?<=[.!?。])\\s+|[\\n;]+"))
             .map { it.trim().trim(',', '，', ':', '：') }
             .filter { it.isNotBlank() }

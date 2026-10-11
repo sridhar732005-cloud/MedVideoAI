@@ -1190,19 +1190,18 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
                 drawFlowNode(line, sectionBackgroundColors[index % sectionBackgroundColors.size])
                 if (index < section.lines.lastIndex) drawFlowArrow()
             }
+        } else if (section.mindMap && section.lines.isNotEmpty()) {
+            drawWrapped("●  ${section.lines.first()}", sectionTextPaint, sectionBg = sectionColor)
+            section.lines.drop(1).forEach { branch ->
+                drawWrapped("   ├─  $branch", bodyPaint, indent = 12f, sectionBg = sectionColor)
+            }
         } else {
-            section.lines.forEachIndexed { index, line ->
-                val text = when {
-                    section.mindMap && index == 0 -> "●  $line"
-                    section.mindMap -> "   ├─  $line"
-                    section.important -> "★  $line"
-                    else -> "•  $line"
-                }
+            section.lines.forEach { line ->
+                val text = if (section.important) "★  $line" else "•  $line"
                 drawWrapped(
                     text,
-                    if (section.important) titlePaint else bodyPaint,
-                    if (section.mindMap) 12f else 0f,
-                    sectionColor,
+                    if (section.important) headingPaint else bodyPaint,
+                    sectionBg = sectionColor,
                     darkImportant = section.important
                 )
             }

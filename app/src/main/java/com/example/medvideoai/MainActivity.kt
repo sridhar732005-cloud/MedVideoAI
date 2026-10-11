@@ -75,7 +75,7 @@ private val geminiModelOptions = listOf(
     GeminiModelOption("Gemini 3.8 Flash — Quality", "gemini-3.8-flash", "Higher-capability option when enabled for your API key")
 )
 
-private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false)
+private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false, val mindMap: Boolean = false, val important: Boolean = false)
 private data class MedicalNotes(val topic: String, val sections: List<NoteSection>) {
     fun plainText(): String = buildString {
         append(topic.trim().ifBlank { "Medical Notes" }).append("\n\n")
@@ -238,19 +238,23 @@ private fun MedicalNotesScreen() {
                                 Color(0xFFE8F1FF), Color(0xFFE6F7EE), Color(0xFFFFF2D9),
                                 Color(0xFFF3E8FF), Color(0xFFFFE8EC), Color(0xFFE4F7F8)
                             )
+                            val sectionColor = sectionColors[sectionIndex % sectionColors.size]
                             Column(
-                                Modifier.fillMaxWidth()
-                                    .background(sectionColors[sectionIndex % sectionColors.size], RoundedCornerShape(10.dp))
-                                    .padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                                Modifier.fillMaxWidth().background(sectionColor, RoundedCornerShape(10.dp)).padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
-                                Text(section.title, style = MaterialTheme.typography.titleMedium, color = Color(0xFF17365D))
-                                section.lines.forEachIndexed { index, line ->
-                                    Text(
-                                        if (section.flowchart && index < section.lines.lastIndex) "$line  ↓"
-                                        else if (section.flowchart) line else "• $line",
-                                        color = Color(0xFF202124)
-                                    )
+                                Text(section.title, style = if (section.important) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, color = Color(0xFF17365D))
+                                if (section.mindMap && section.lines.isNotEmpty()) {
+                                    Text("● ${section.lines.first()}", style = MaterialTheme.typography.titleMedium, color = Color(0xFF202124))
+                                    section.lines.drop(1).forEach { branch -> Text("   ├─ $branch", color = Color(0xFF202124)) }
+                                } else {
+                                    section.lines.forEachIndexed { index, line ->
+                                        Text(
+                                            if (section.flowchart && index < section.lines.lastIndex) "$line  ↓" else if (section.flowchart) line else "• $line",
+                                            style = if (section.important) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                                            color = Color(0xFF202124)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -458,27 +462,22 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val sections = buckets.mapNotNull { (name, rawLines) ->
         if (rawLines.isEmpty()) return@mapNotNull null
 
-        // Keep every supplied definition line exactly as written after removing the heading/bullet marker.
-        // All other sections use extractive sentence selection: no new words or facts are generated.
         val isDefinition = name == "Definition"
+        val isMindMap = name == "Etiology / Causes" || name == "Classification" ||
+            name == "Mechanism of Action" || name == "Pathogenesis"
+        val isImportant = name == "Important Points" || name == "High-yield Points" ||
+            name == "Key Points" || name == "Important"
         val flow = name == "Mechanism of Action" || name == "Pathogenesis"
-        val units = if (isDefinition) {
-            rawLines
-        } else {
-            rawLines.flatMap { line ->
-                val arrowParts = line.split(Regex("\\s*(?:→|->|⟶)\\s*")).filter { it.isNotBlank() }
-                if (arrowParts.size > 1) arrowParts
-                else splitSentences(line)
-            }
+        val units = if (isDefinition) rawLines else rawLines.flatMap { line ->
+            val arrowParts = line.split(Regex("\\s*(?:→|->|⟶)\\s*")).filter { it.isNotBlank() }
+            if (arrowParts.size > 1) arrowParts else splitSentences(line)
         }
         val cleanedUnits = units.map { it.trim().trimStart('•', '-', '*').trim() }.filter { it.isNotBlank() }
-        val preserveStructuredPoints = rawLines.size > 1 && rawLines.all { it.length <= 180 }
-        val preserveAllSectionPoints = name == "Etiology / Causes" || name == "Classification" || name == "Treatment" || name == "Prevention"
-        val selected = if (isDefinition || flow || preserveStructuredPoints || preserveAllSectionPoints) cleanedUnits else selectKeySentences(name, cleanedUnits)
+        val selected = if (isDefinition || isMindMap || isImportant || name == "Treatment" || name == "Prevention") cleanedUnits
+            else selectKeySentences(name, cleanedUnits)
         val finalLines = if (flow) normalizeFlowchart(selected) else selected
-        if (finalLines.isEmpty()) null else NoteSection(name, finalLines, flow)
+        if (finalLines.isEmpty()) null else NoteSection(name, finalLines, flowchart = flow, mindMap = isMindMap, important = isImportant)
     }
-
     return MedicalNotes(topic.ifBlank { "Medical Notes" }, sections.ifEmpty {
         listOf(NoteSection("Important Points", listOf("No text detected.")))
     })

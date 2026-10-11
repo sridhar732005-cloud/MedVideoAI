@@ -1,0 +1,6 @@
+# Local machine configuration and secrets
+local.properties
+*.jks
+*.keystore
+.env
+.env.*

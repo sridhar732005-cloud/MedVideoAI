@@ -254,7 +254,9 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
             .put("contents", JSONArray().put(
                 JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
             ))
-            .put("generationConfig", JSONObject().put("temperature", 0.1).put("maxOutputTokens", 8192))
+            .put("generationConfig", JSONObject()
+                .put("thinkingConfig", JSONObject().put("thinkingLevel", "high"))
+                .put("maxOutputTokens", 8192))
         connection.outputStream.use { it.write(requestBody.toString().toByteArray(Charsets.UTF_8)) }
         val statusCode = connection.responseCode
         val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream

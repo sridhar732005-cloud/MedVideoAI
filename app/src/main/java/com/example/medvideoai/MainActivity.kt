@@ -434,7 +434,6 @@ private fun drawMedicalFrame(
         .toInt().coerceIn(0, sceneCount - 1)
     val sceneText = sentences.getOrElse(sceneIndex) { cleanText }
     val lower = sceneText.lowercase()
-    val allLower = cleanText.lowercase()
 
     paint.color = android.graphics.Color.rgb(35, 35, 45)
     paint.textSize = 17f
@@ -454,10 +453,13 @@ private fun drawMedicalFrame(
     val cx = width / 2f
     val cy = height * 0.49f
     val pulse = 1f + 0.08f * kotlin.math.sin(elapsedSeconds * 1.5).toFloat()
-    val isHeart = listOf("heart", "cardiac", "cardio", "இதயம்", "இருதயம்").any { lower.contains(it) || allLower.contains(it) }
-    val isEar = listOf("ear", "meniere", "vestibular", "cochlea", "காது", "மெனியர்").any { lower.contains(it) || allLower.contains(it) }
-    val isMicrobe = listOf("bacteria", "virus", "infection", "microbe", "பாக்டீரியா", "வைரஸ்", "தொற்று").any { lower.contains(it) || allLower.contains(it) }
-    val isAirway = listOf("asthma", "copd", "airway", "bronch", "lung", "respirat", "mucus", "நுரையீரல்", "ஆஸ்துமா", "மூச்சு", "சளி").any { lower.contains(it) || allLower.contains(it) }
+    val isHeart = listOf("heart", "cardiac", "cardio", "இதயம்", "இருதயம்").any { lower.contains(it) }
+    val isEar = listOf("ear", "meniere", "vestibular", "cochlea", "காது", "மெனியர்").any { lower.contains(it) }
+    val isMicrobe = listOf("bacteria", "virus", "infection", "microbe", "பாக்டீரியா", "வைரஸ்", "தொற்று").any { lower.contains(it) }
+    val isAirway = listOf("asthma", "copd", "airway", "bronch", "lung", "respirat", "mucus", "breath", "narrow", "நுரையீரல்", "ஆஸ்துமா", "மூச்சு", "சளி", "சுருங்க").any { lower.contains(it) }
+    val isNarrowing = listOf("narrow", "constrict", "சுருங்க", "குறுக").any { lower.contains(it) }
+    val isMucus = listOf("mucus", "phlegm", "sputum", "சளி").any { lower.contains(it) }
+    val isBreathingDifficulty = listOf("difficulty breathing", "breathlessness", "shortness of breath", "dyspnea", "மூச்சுத்திணறல்", "மூச்சுவிட சிரமம்").any { lower.contains(it) }
 
     if (isHeart) {
         paint.color = android.graphics.Color.rgb(220, 70, 90)
@@ -506,7 +508,7 @@ private fun drawMedicalFrame(
         paint.color = android.graphics.Color.rgb(128, 203, 196)
         canvas.drawOval(RectF(cx - 88f * pulse, cy - 65f * pulse, cx - 12f, cy + 100f * pulse), paint)
         canvas.drawOval(RectF(cx + 12f, cy - 65f * pulse, cx + 88f * pulse, cy + 100f * pulse), paint)
-        if (listOf("asthma", "copd", "airway", "bronch", "mucus", "சளி", "ஆஸ்துமா").any { lower.contains(it) || allLower.contains(it) }) {
+        if (isAirway) {
             paint.color = android.graphics.Color.rgb(239, 83, 80)
             paint.strokeWidth = 7f
             canvas.drawLine(cx - 42f, cy + 4f, cx - 15f, cy + 4f, paint)
@@ -514,6 +516,23 @@ private fun drawMedicalFrame(
             paint.color = android.graphics.Color.rgb(255, 183, 77)
             canvas.drawCircle(cx - 26f, cy + 4f, 8f, paint)
             canvas.drawCircle(cx + 26f, cy + 4f, 8f, paint)
+            if (isNarrowing) {
+                paint.color = android.graphics.Color.rgb(239, 83, 80)
+                paint.strokeWidth = 13f
+                canvas.drawLine(cx - 48f, cy + 4f, cx - 15f, cy + 4f, paint)
+                canvas.drawLine(cx + 15f, cy + 4f, cx + 48f, cy + 4f, paint)
+            }
+            if (isMucus) {
+                paint.color = android.graphics.Color.rgb(255, 183, 77)
+                canvas.drawCircle(cx - 25f, cy + 22f, 8f + 2f * pulse, paint)
+                canvas.drawCircle(cx, cy + 24f, 7f + 2f * pulse, paint)
+                canvas.drawCircle(cx + 24f, cy + 22f, 8f + 2f * pulse, paint)
+            }
+            if (isBreathingDifficulty) {
+                paint.color = android.graphics.Color.rgb(239, 83, 80)
+                paint.textSize = 15f
+                canvas.drawText("BREATHING DIFFICULTY", 42f, cy + 132f, paint)
+            }
         }
     }
 

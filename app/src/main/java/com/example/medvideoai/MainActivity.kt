@@ -681,7 +681,8 @@ private fun summarizeWithGeminiSingleAttempt(
         val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
         if (statusCode !in 200..299) {
             val detail = runCatching { JSONObject(responseText).getJSONObject("error").optString("message") }.getOrNull()
-            throw IllegalStateException(detail?.takeIf { it.isNotBlank() } ?: "HTTP $statusCode")
+            val serverMessage = detail?.takeIf { it.isNotBlank() } ?: "No error details from server"
+            throw IllegalStateException("HTTP $statusCode: $serverMessage")
         }
         val json = JSONObject(responseText)
         val candidates = json.optJSONArray("candidates") ?: throw IllegalStateException("No summary returned")

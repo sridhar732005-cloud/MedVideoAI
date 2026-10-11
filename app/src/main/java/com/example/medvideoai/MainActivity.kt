@@ -226,7 +226,7 @@ private fun MedicalNotesScreen() {
                     busy = false; status = ""; pdfBytes = null
                 }) { Text("↻ Refresh") }
             }
-            Text("Paste long English medical text. There is no fixed 500-character app limit. Notes and PDF can span multiple pages; Gemini may still apply request/token limits. Offline mode preserves all detected sentences. Definitions are kept verbatim; causes and mechanisms are shown as mind maps.")
+            Text("Paste medical text or select an image. Notes and PDF can span multiple pages. Offline mode selects a few points using simple rules; AI mode analyses headings and relationships when Gemini is available. Definitions are preserved when detected; pathogenesis and mechanisms are shown as flowcharts.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -520,7 +520,7 @@ private fun MedicalNotesScreen() {
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Offline notes now keep all detected sentences instead of selecting only a fraction. There is no fixed 500-character app limit, but device memory and Gemini request/token quotas still apply. Review medical content before exams.",
+                "Offline mode uses simple rules to select key points; AI mode gives better topic-wise analysis when available. Gemini quota and network availability can vary. Review medical details before exams.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -1181,7 +1181,7 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
         canvas!!.drawLine(centerX, top, centerX, bottom, flowArrowPaint)
         canvas!!.drawLine(centerX - 4f, bottom - 4f, centerX, bottom, flowArrowPaint)
         canvas!!.drawLine(centerX + 4f, bottom - 4f, centerX, bottom, flowArrowPaint)
-        y += 19f
+        y += 28f
     }
     startPage()
     var visualIndex = 0

@@ -129,7 +129,7 @@ private fun MedicalNotesScreen() {
                             .addOnSuccessListener {
                                 translator.translate(input)
                                     .addOnSuccessListener { translated ->
-                                        notes = formatMedicalNotes(title, translated)
+                                        notes = formatMedicalNotes(if (containsTamil(title)) inferTopic(translated) else title, translated)
                                         status = "English notes ready. Check medical wording before exporting."
                                         busy = false
                                         translator.close()
@@ -213,23 +213,29 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
 
     raw.lines().map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
         val clean = line.trimStart('#', '*', '-', '•', ' ', '\t')
-        val heading = known.firstOrNull { (_, aliases) ->
-            val lower = clean.lowercase(Locale.ROOT).trimEnd(':', ' ')
-            aliases.any { alias -> lower == alias || lower == "$alias:" || lower.startsWith("$alias ") }
-        }
-        if (heading != null) {
-            current = heading.first
-            buckets.getOrPut(current) { mutableListOf() }
-        } else {
-            val content = clean.replace(Regex("^\\d+[.)]\\s*"), "").trim()
-            if (content.isNotBlank()) {
-                if (current == "Definition" && !definitionExact) {
-                    buckets.getOrPut(current) { mutableListOf() }.add(content)
-                    definitionExact = true
-                } else {
-                    buckets.getOrPut(current) { mutableListOf() }.add(content)
+            .replace(Regex("^\\d+[.)]\\s*"), "").trim()
+        val lower = clean.lowercase(Locale.ROOT)
+        val matched = known.firstNotNullOfOrNull { (sectionName, aliases) ->
+            aliases.firstNotNullOfOrNull { alias ->
+                when {
+                    lower == alias || lower == "$alias:" -> Triple(sectionName, alias, "")
+                    lower.startsWith("$alias:") -> Triple(sectionName, alias, clean.substringAfter(':').trim())
+                    lower.startsWith("$alias -") -> Triple(sectionName, alias, clean.substringAfter('-').trim())
+                    else -> null
                 }
             }
+        }
+        if (matched != null) {
+            current = matched.first
+            buckets.getOrPut(current) { mutableListOf() }
+            val remainder = matched.third
+            if (remainder.isNotBlank()) {
+                buckets.getOrPut(current) { mutableListOf() }.add(remainder)
+                if (current == "Definition") definitionExact = true
+            }
+        } else if (clean.isNotBlank()) {
+            buckets.getOrPut(current) { mutableListOf() }.add(clean)
+            if (current == "Definition") definitionExact = true
         }
     }
 

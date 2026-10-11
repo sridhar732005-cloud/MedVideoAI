@@ -188,6 +188,20 @@ private fun MedicalNotesScreen() {
                     }
                 }
             ) { Text("Refresh models available to my API key") }
+            TextButton(
+                enabled = !busy,
+                onClick = {
+                    topic = ""
+                    sourceText = ""
+                    apiKey = ""
+                    selectedModel = geminiModelOptions.first()
+                    availableModels = geminiModelOptions
+                    modelMenuExpanded = false
+                    notes = null
+                    status = "Ready for new notes."
+                    pdfBytes = null
+                }
+            ) { Text("Clear / New Notes") }
             Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,

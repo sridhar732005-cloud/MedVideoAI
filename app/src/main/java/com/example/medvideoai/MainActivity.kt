@@ -484,7 +484,7 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
     val prompt = """
         You are an MBBS exam-note analyst. Analyze the topic and source before writing; identify what each fact belongs to, then place it under the correct heading.
         GOAL: produce only high-yield, topic-relevant exam points, not a long essay and not a copy of the source.
-        LENGTH: usually 3–6 short bullets per relevant heading; use fewer when the topic needs less. Avoid repeated facts, filler, introductions, conclusions, and unrelated information. Preserve essential definitions, diagnostic criteria, staging/classification, key mechanisms, first-line or source-mentioned management, important contraindications, and exam differentiators. Never omit a critical fact merely to make notes shorter.
+        LENGTH: make an ultra-concise high-yield revision sheet. For the whole topic, aim for 1–3 short bullets per relevant heading, and normally no more than 6–10 bullets total unless the supplied source clearly requires more. Do not output six sentences just because they exist in the source. Keep only the single most important sentence/fact for each heading when possible; combine related facts into one compact bullet. Avoid repeated facts, filler, introductions, conclusions, and unrelated information. Preserve essential definitions, diagnostic criteria, staging/classification, key mechanisms, source-mentioned management, important contraindications, and exam differentiators. Never omit a critical fact merely to make notes shorter.
         SOURCE ACCURACY: treat provided text/image as the primary source. Preserve a supplied definition verbatim. Do not invent doses, lab values, treatment recommendations, or unreadable image details. If clarification is essential, label it "Brief clarification" and keep it to one line.
         INPUT ANALYSIS: carefully read all supplied text and image content. For images, interpret legible labels, tables, arrows, and diagram relationships; do not guess unclear material. Combine text+image without duplication.
         OUTPUT RULES: plain text only, compact bullets, no long paragraphs. Use only relevant headings from this set:
@@ -669,9 +669,40 @@ private fun splitSentences(text: String): List<String> {
 }
 
 private fun selectKeySentences(section: String, sentences: List<String>): List<String> {
-    // Keep every detected sentence rather than trimming notes to a fraction.
-    // Practical limits are device memory and upstream AI request/token quotas.
-    return sentences
+    // Offline mode cannot understand medical relevance like Gemini, so keep a small,
+    // deterministic selection instead of showing every sentence in long source paragraphs.
+    val unique = sentences.map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), " ").trim() }
+    if (unique.size <= 2) return unique
+    val priorityWords = when (section) {
+        "Etiology / Causes" -> listOf("cause", "due to", "risk factor", "etiology", "because")
+        "Clinical Features" -> listOf("characterized", "presents", "symptom", "sign", "feature", "manifest")
+        "Investigations" -> listOf("diagnos", "test", "shows", "reveals", "criteria", "level")
+        "Treatment" -> listOf("treat", "management", "first line", "drug", "therapy", "indicated")
+        "Complications" -> listOf("complication", "failure", "shock", "death", "progress")
+        "Prevention" -> listOf("prevent", "prophylaxis", "vaccin", "avoid")
+        else -> listOf("is defined", "defined as", "most common", "characterized", "important", "diagnos", "caused by", "leads to", "results in")
+    }
+    val scored = unique.mapIndexed { index, sentence ->
+        var score = 0
+        val lower = sentence.lowercase(Locale.ROOT)
+        if (priorityWords.any { lower.contains(it) }) score += 4
+        if (Regex("\\d").containsMatchIn(sentence)) score += 2
+        if (listOf("must", "only", "first-line", "contraindicated", "criterion", "criteria", "hallmark", "pathognomonic").any { lower.contains(it) }) score += 3
+        if (sentence.length in 35..180) score += 1
+        if (sentence.length > 260) score -= 2
+        index to score
+    }
+    val limit = when (section) {
+        "Definition" -> 1
+        "Etiology / Causes", "Classification", "Mechanism of Action", "Pathogenesis",
+        "Clinical Features", "Investigations", "Treatment", "Complications", "Prevention" -> 3
+        else -> 4
+    }
+    return scored.sortedWith(compareByDescending<Pair<Int, Int>> { it.second }.thenBy { it.first })
+        .take(limit).map { unique[it.first] }
+        .sortedBy { unique.indexOf(it) }
 }
 
 private val summarizerStopWords = setOf(

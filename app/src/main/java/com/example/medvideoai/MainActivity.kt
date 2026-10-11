@@ -31,15 +31,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import com.google.mlkit.nl.translate.TranslateLanguage
-import com.google.mlkit.nl.translate.Translation
-import com.google.mlkit.nl.translate.TranslatorOptions
-import kotlinx.coroutines.launch
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
@@ -99,7 +94,7 @@ private fun MedicalNotesScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall)
-            Text("Paste medical text in Tamil or English. Notes are organized into short sections; mechanism and pathogenesis are shown as flowcharts. English text is preserved where supplied.")
+            Text("Paste your English medical text. The app only uses your supplied text—no textbook lookup or translation. It organizes concise notes and turns mechanism/pathogenesis sequences into flowcharts where possible.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -108,53 +103,25 @@ private fun MedicalNotesScreen() {
             OutlinedTextField(
                 value = sourceText, onValueChange = { sourceText = it; notes = null; status = "" },
                 modifier = Modifier.fillMaxWidth(), minLines = 7,
-                label = { Text("Paste your medical text") },
-                placeholder = { Text("Definition, etiology, pathogenesis, clinical features, investigations, treatment...") }
+                label = { Text("Paste English medical text") },
+                placeholder = { Text("Paste your topic text here in English...") }
             )
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
                     busy = true
-                    status = "Preparing notes..."
+                    status = "Formatting your notes..."
                     val input = sourceText.trim()
                     val title = topic.trim().ifBlank { inferTopic(input) }
-                    if (containsTamil(input)) {
-                        val options = TranslatorOptions.Builder()
-                            .setSourceLanguage(TranslateLanguage.TAMIL)
-                            .setTargetLanguage(TranslateLanguage.ENGLISH)
-                            .build()
-                        val translator = Translation.getClient(options)
-                        translator.downloadModelIfNeeded()
-                            .addOnSuccessListener {
-                                translator.translate(input)
-                                    .addOnSuccessListener { translated ->
-                                        notes = formatMedicalNotes(if (containsTamil(title)) inferTopic(translated) else title, translated)
-                                        status = "English notes ready. Check medical wording before exporting."
-                                        busy = false
-                                        translator.close()
-                                    }
-                                    .addOnFailureListener { error ->
-                                        status = "Tamil-to-English model failed. Check internet and try again: ${error.localizedMessage ?: "translation error"}"
-                                        busy = false
-                                        translator.close()
-                                    }
-                            }
-                            .addOnFailureListener { error ->
-                                status = "Could not download the free translation model. Connect to the internet and retry: ${error.localizedMessage ?: "download error"}"
-                                busy = false
-                                translator.close()
-                            }
-                    } else {
-                        notes = formatMedicalNotes(title, input)
-                        status = "Notes ready. The supplied definition text is preserved."
-                        busy = false
-                    }
+                    notes = formatMedicalNotes(title, input)
+                    status = "Notes formatted from your text. Review the preview, then save the PDF."
+                    busy = false
                 }
-            ) { Text("Convert to English Notes") }
+            ) { Text("Make Short Notes") }
             if (busy) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator()
-                Text("Preparing notes...")
+                Text("Formatting notes...")
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {
@@ -178,7 +145,7 @@ private fun MedicalNotesScreen() {
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Free mode: Tamil translation downloads a free on-device language model when first used. Notes are rule-formatted, not medically validated AI output. Verify clinical facts and definitions against your prescribed textbook.",
+                "Uses only the English text you provide. No translation, textbook lookup, or outside medical facts are added. This version formats and condenses by headings and bullet points; it is not an AI medical summarizer, so review the notes to ensure the meaning is unchanged.",
                 style = MaterialTheme.typography.bodySmall
             )
         }

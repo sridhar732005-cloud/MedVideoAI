@@ -151,7 +151,7 @@ private fun MedicalNotesScreen() {
                             val summarized = withContext(Dispatchers.IO) {
                                 summarizeWithGemini(apiKey, title, input)
                             }
-                            notes = formatMedicalNotes(title, summarized)
+                            notes = formatMedicalNotes(title, restoreExactDefinition(title, input, summarized))
                             status = "AI summary received. Compare the preview with your source before saving."
                         } catch (e: Exception) {
                             status = "AI summary failed: ${e.message ?: "unknown error"}. You can still use Offline Short Notes."
@@ -196,6 +196,32 @@ private fun MedicalNotesScreen() {
 
 
 private fun containsTamil(text: String): Boolean = text.any { it.code in 0x0B80..0x0BFF }
+
+private fun restoreExactDefinition(topic: String, sourceText: String, summaryText: String): String {
+    val exactDefinition = formatMedicalNotes(topic, sourceText).sections
+        .firstOrNull { it.title == "Definition" } ?: return summaryText
+    val lines = summaryText.lines().toMutableList()
+    val definitionHeading = Regex("^\\s*(?:#+\\s*)?definition\\s*:?(?:\\s+.*)?$", RegexOption.IGNORE_CASE)
+    val start = lines.indexOfFirst { definitionHeading.matches(it.trim()) }
+    val sectionHeading = Regex(
+        "^\\s*(?:#+\\s*)?(definition|etiology(?:\\s*/\\s*causes)?|causes?|risk factors|classification|types?|mechanism(?: of action)?|pathogenesis|clinical features|symptoms|signs|investigations|diagnosis|tests|treatment|management|therapy|complications|prevention|prophylaxis)\\s*:?\\s*$",
+        RegexOption.IGNORE_CASE
+    )
+    if (start < 0) {
+        return "Definition:\n" + exactDefinition.lines.joinToString("\n") + "\n\n" + summaryText
+    }
+    var end = lines.size
+    for (i in (start + 1) until lines.size) {
+        if (sectionHeading.matches(lines[i]) && !definitionHeading.matches(lines[i])) {
+            end = i
+            break
+        }
+    }
+    val replacement = mutableListOf("Definition:").apply { addAll(exactDefinition.lines) }
+    lines.subList(start, end).clear()
+    lines.addAll(start, replacement)
+    return lines.joinToString("\n")
+}
 
 private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String): String {
     val prompt = """

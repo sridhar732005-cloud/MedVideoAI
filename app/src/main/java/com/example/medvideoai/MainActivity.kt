@@ -78,7 +78,16 @@ private val geminiModelOptions = listOf(
     GeminiModelOption("Gemini 3.8 Flash — Quality", "gemini-3.8-flash", "Higher-capability option when enabled for your API key")
 )
 
-private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false, val mindMap: Boolean = false, val important: Boolean = false)
+private data class NoteSection(
+    val title: String,
+    val lines: List<String>,
+    val flowchart: Boolean = false,
+    val mindMap: Boolean = false,
+    val important: Boolean = false,
+    val visualHint: String? = null
+)
+
+private data class MedicalVisual(val title: String, val sourceUrl: String, val bitmap: android.graphics.Bitmap)
 private data class SelectedMedicalImage(val uri: Uri, val mimeType: String, val base64Data: String, val previewBitmap: android.graphics.Bitmap)
 private data class MedicalNotes(val topic: String, val sections: List<NoteSection>) {
     fun plainText(): String = buildString {
@@ -116,6 +125,9 @@ private fun MedicalNotesScreen() {
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
     var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
     var imageRestoreComplete by remember { mutableStateOf(false) }
+    var visualLookupBusy by remember { mutableStateOf(false) }
+    var visualLookupStatus by remember { mutableStateOf("") }
+    var topicVisuals by remember { mutableStateOf<List<MedicalVisual>>(emptyList()) }
     val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) {
             status = "Image selection cancelled."
@@ -344,7 +356,24 @@ private fun MedicalNotesScreen() {
                                 summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
                             notes = formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized))
-                            status = "AI notes received. Review every medical detail before saving the PDF."
+                            status = "AI notes received. Finding suitable medical illustrations..."
+                            visualLookupBusy = true
+                            topicVisuals = emptyList()
+                            try {
+                                val hints = notes!!.sections.mapNotNull { it.visualHint }.distinct().take(3)
+                                topicVisuals = withContext(Dispatchers.IO) { findMedicalVisuals(hints) }
+                                visualLookupStatus = if (topicVisuals.isEmpty()) {
+                                    "No suitable online illustrations found; notes and PDF are still available."
+                                } else {
+                                    "Found ${topicVisuals.size} medical illustration(s). They will be added to the PDF."
+                                }
+                                status = "AI notes ready. ${visualLookupStatus} Review medical accuracy before saving."
+                            } catch (visualError: Exception) {
+                                visualLookupStatus = "Illustrations unavailable: ${visualError.message ?: "network error"}"
+                                status = "AI notes ready. ${visualLookupStatus}"
+                            } finally {
+                                visualLookupBusy = false
+                            }
                         } catch (e: Exception) {
                             status = "AI summary failed: ${e.message ?: "unknown error"}. You can still use Offline Short Notes."
                         } finally {
@@ -356,6 +385,25 @@ private fun MedicalNotesScreen() {
             if (busy) Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 CircularProgressIndicator()
                 Text("Formatting notes...")
+            }
+            if (visualLookupBusy) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator()
+                    Text("Finding relevant medical illustrations...")
+                }
+            }
+            if (visualLookupStatus.isNotBlank()) Text(visualLookupStatus, style = MaterialTheme.typography.bodySmall)
+            if (topicVisuals.isNotEmpty()) {
+                Text("Relevant illustrations", style = MaterialTheme.typography.titleMedium)
+                topicVisuals.forEach { visual ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Image(bitmap = visual.bitmap.asImageBitmap(), contentDescription = visual.title, modifier = Modifier.size(112.dp))
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(visual.title, style = MaterialTheme.typography.titleSmall)
+                            Text("Wikimedia Commons · online image", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {
@@ -391,7 +439,7 @@ private fun MedicalNotesScreen() {
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        pdfBytes = createPdf(generated)
+                        pdfBytes = createPdf(generated, topicVisuals)
                         savePdf.launch(safeFileName(generated.topic) + ".pdf")
                     }
                 ) { Text("Save PDF") }
@@ -565,7 +613,8 @@ private fun encodeMedicalNotes(notes: MedicalNotes): String {
             .put("lines", JSONArray(section.lines))
             .put("flowchart", section.flowchart)
             .put("mindMap", section.mindMap)
-            .put("important", section.important))
+            .put("important", section.important)
+            .put("visualHint", section.visualHint ?: ""))
     }
     return JSONObject().put("topic", notes.topic).put("sections", sections).toString()
 }
@@ -582,11 +631,96 @@ private fun decodeMedicalNotes(jsonText: String): MedicalNotes? = runCatching {
             lines = lines,
             flowchart = item.optBoolean("flowchart"),
             mindMap = item.optBoolean("mindMap"),
-            important = item.optBoolean("important")
+            important = item.optBoolean("important"),
+            visualHint = item.optString("visualHint").takeIf { it.isNotBlank() }
         )
     }
     MedicalNotes(json.optString("topic", "Medical Notes"), sections)
 }.getOrNull()
+
+private fun findMedicalVisuals(hints: List<String>): List<MedicalVisual> {
+    if (hints.isEmpty()) return emptyList()
+    val found = mutableListOf<MedicalVisual>()
+    for (hint in hints.take(3)) {
+        try {
+            val search = URLEncoder.encode(hint, "UTF-8")
+            val apiUrl = "https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=$search&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url&iiurlwidth=420&format=json"
+            val connection = (URL(apiUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 10000
+                readTimeout = 15000
+                setRequestProperty("User-Agent", "MedNotesPDF/1.0 (educational medical notes)")
+            }
+            try {
+                if (connection.responseCode !in 200..299) continue
+                val response = connection.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+                val pages = JSONObject(response).optJSONObject("query")?.optJSONObject("pages") ?: continue
+                val ids = pages.keys()
+                var addedForHint = false
+                while (ids.hasNext() && !addedForHint) {
+                    val pageObj = pages.optJSONObject(ids.next()) ?: continue
+                    val title = pageObj.optString("title").removePrefix("File:")
+                    val info = pageObj.optJSONObject("imageinfo") ?: pageObj.optJSONArray("imageinfo")?.optJSONObject(0) ?: continue
+                    val imageUrl = info.optString("thumburl").ifBlank { info.optString("url") }
+                    if (!imageUrl.startsWith("https://")) continue
+                    val bytes = downloadImageBytes(imageUrl) ?: continue
+                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: continue
+                    if (bitmap.width < 100 || bitmap.height < 80) continue
+                    found.add(MedicalVisual(title, info.optString("descriptionurl").ifBlank { imageUrl }, bitmap))
+                    addedForHint = true
+                }
+            } finally {
+                connection.disconnect()
+            }
+        } catch (_: Exception) {
+            // Online illustrations are optional: failed searches must not block note creation or PDF export.
+        }
+    }
+    return found
+}
+
+private fun downloadImageBytes(imageUrl: String): ByteArray? {
+    val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 10000
+        readTimeout = 15000
+    }
+    return try {
+        if (connection.responseCode !in 200..299) null
+        else {
+            val output = ByteArrayOutputStream()
+            connection.inputStream.use { stream ->
+                val buffer = ByteArray(8192)
+                var total = 0
+                while (true) {
+                    val count = stream.read(buffer)
+                    if (count < 0) break
+                    total += count
+                    if (total > 5 * 1024 * 1024) return null
+                    output.write(buffer, 0, count)
+                }
+            }
+            output.toByteArray()
+        }
+    } finally {
+        connection.disconnect()
+    }
+}
+
+private fun inferVisualHint(sectionName: String, topic: String): String? {
+    val heading = sectionName.lowercase(Locale.ROOT)
+    val hint = when {
+        heading.contains("pathogenesis") -> "medical pathogenesis diagram"
+        heading.contains("mechanism") -> "medical mechanism of action diagram"
+        heading.contains("classification") -> "medical classification diagram"
+        heading.contains("anatomy") -> "medical anatomy illustration"
+        heading.contains("investigation") -> "medical diagnostic illustration"
+        else -> return null
+    }
+    val cleanTopic = topic.trim().take(80)
+    if (cleanTopic.isBlank()) return null
+    return "$cleanTopic $hint"
+}
 
 private fun inferTopic(text: String): String {
     val first = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
@@ -651,7 +785,14 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
         val selected = if (isDefinition || isMindMap || isImportant || name == "Treatment" || name == "Prevention") cleanedUnits
             else selectKeySentences(name, cleanedUnits)
         val finalLines = if (flow) normalizeFlowchart(selected) else selected
-        if (finalLines.isEmpty()) null else NoteSection(name, finalLines, flowchart = flow, mindMap = isMindMap, important = isImportant)
+        if (finalLines.isEmpty()) null else NoteSection(
+            name,
+            finalLines,
+            flowchart = flow,
+            mindMap = isMindMap,
+            important = isImportant,
+            visualHint = inferVisualHint(name, topic)
+        )
     }
     return MedicalNotes(topic.ifBlank { "Medical Notes" }, sections.ifEmpty {
         listOf(NoteSection("Important Points", listOf("No text detected.")))
@@ -721,7 +862,7 @@ private fun normalizeFlowchart(lines: List<String>): List<String> =
 private fun safeFileName(name: String): String =
     name.replace(Regex("[^A-Za-z0-9_-]+"), "_").trim('_').ifBlank { "Medical_Notes" }.take(70)
 
-private fun createPdf(notes: MedicalNotes): ByteArray {
+private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyList()): ByteArray {
     val document = PdfDocument()
     val pageWidth = 595
     val pageHeight = 842
@@ -873,6 +1014,7 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
         y += 19f
     }
     startPage()
+    var visualIndex = 0
     notes.sections.forEachIndexed { sectionIndex, section ->
         val sectionColor = sectionBackgroundColors[sectionIndex % sectionBackgroundColors.size]
         ensureSpace(34f)
@@ -882,6 +1024,21 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
         val headerPaint = if (section.important) titlePaint else sectionTextPaint
         canvas!!.drawText(section.title, margin, y, headerPaint)
         y += if (section.important) 24f else 20f
+        if (section.visualHint != null && visualIndex < visuals.size) {
+            val visual = visuals[visualIndex++]
+            val bitmap = visual.bitmap
+            val maxW = pageWidth - margin * 2 - 20f
+            val maxH = 130f
+            val scale = minOf(maxW / bitmap.width.toFloat(), maxH / bitmap.height.toFloat(), 1f)
+            val drawW = bitmap.width * scale
+            val drawH = bitmap.height * scale
+            ensureSpace(drawH + 25f)
+            val left = (pageWidth - drawW) / 2f
+            sectionBgPaint.color = sectionBackgroundColors[(sectionIndex + 2) % sectionBackgroundColors.size]
+            canvas!!.drawRoundRect(left - 5f, y - 12f, left + drawW + 5f, y + drawH + 8f, 7f, 7f, sectionBgPaint)
+            canvas!!.drawBitmap(bitmap, null, android.graphics.RectF(left, y - 7f, left + drawW, y + drawH - 7f), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+            y += drawH + 12f
+        }
         if (section.flowchart) {
             section.lines.forEachIndexed { index, line ->
                 drawFlowNode(line, sectionBackgroundColors[index % sectionBackgroundColors.size])

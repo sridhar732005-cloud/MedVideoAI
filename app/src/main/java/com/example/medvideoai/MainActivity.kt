@@ -61,9 +61,10 @@ class MainActivity : ComponentActivity() {
 private data class GeminiModelOption(val label: String, val id: String, val description: String)
 
 private val geminiModelOptions = listOf(
-    GeminiModelOption("Gemini 3.8 Flash — Best quality", "gemini-3.8-flash", "Latest high-capability Flash model"),
-    GeminiModelOption("Gemini 3.6 Flash — Balanced", "gemini-3.6-flash", "Good balance of speed and quality"),
-    GeminiModelOption("Gemini 3.5 Flash-Lite — Faster / lighter", "gemini-3.5-flash-lite", "Lightweight option; availability and limits may vary")
+    GeminiModelOption("Auto — try fastest available", "auto", "Tries lighter models first and falls back if unavailable"),
+    GeminiModelOption("Gemini 3.5 Flash-Lite — Fast / light", "gemini-3.5-flash-lite", "Lower-latency option when enabled for your API key"),
+    GeminiModelOption("Gemini 3.6 Flash — Balanced", "gemini-3.6-flash", "Balance of speed and answer quality"),
+    GeminiModelOption("Gemini 3.8 Flash — Quality", "gemini-3.8-flash", "Higher-capability option when enabled for your API key")
 )
 
 private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false)
@@ -93,7 +94,8 @@ private fun MedicalNotesScreen() {
     var sourceText by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
     var selectedModel by remember { mutableStateOf(geminiModelOptions.first()) }
-    var modelMenuExpanded by remember { mutableStateOf(false) } }
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    var availableModels by remember { mutableStateOf(geminiModelOptions) }
     var notes by remember { mutableStateOf<MedicalNotes?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -144,7 +146,7 @@ private fun MedicalNotesScreen() {
                     Text("AI model: ${selectedModel.label}  ▾")
                 }
                 DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
-                    geminiModelOptions.forEach { option ->
+                    availableModels.forEach { option ->
                         DropdownMenuItem(
                             text = { Column { Text(option.label); Text(option.description, style = MaterialTheme.typography.bodySmall) } },
                             onClick = { selectedModel = option; modelMenuExpanded = false; status = "Selected ${option.label}." }
@@ -152,6 +154,25 @@ private fun MedicalNotesScreen() {
                     }
                 }
             }
+            TextButton(
+                enabled = apiKey.isNotBlank() && !busy,
+                onClick = {
+                    busy = true
+                    status = "Checking models available to this API key..."
+                    scope.launch {
+                        try {
+                            val models = withContext(Dispatchers.IO) { fetchAvailableGeminiModels(apiKey) }
+                            availableModels = listOf(geminiModelOptions.first()) + models
+                            if (availableModels.none { it.id == selectedModel.id }) selectedModel = availableModels.first()
+                            status = "Model list refreshed: ${models.size} Gemini model(s) support text generation for this API key. Free quota varies by account."
+                        } catch (e: Exception) {
+                            status = "Could not refresh model list: ${e.message ?: "unknown error"}. Existing choices are still available."
+                        } finally {
+                            busy = false
+                        }
+                    }
+                }
+            ) { Text("Refresh models available to my API key") }
             Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
@@ -251,7 +272,53 @@ private fun restoreExactDefinition(topic: String, sourceText: String, summaryTex
     return lines.joinToString("\n")
 }
 
+private fun fetchAvailableGeminiModels(apiKey: String): List<GeminiModelOption> {
+    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models?key=" +
+        URLEncoder.encode(apiKey, "UTF-8")
+    val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
+        requestMethod = "GET"
+        connectTimeout = 15000
+        readTimeout = 20000
+    }
+    try {
+        val statusCode = connection.responseCode
+        val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream
+        val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (statusCode !in 200..299) {
+            val detail = runCatching { JSONObject(responseText).getJSONObject("error").optString("message") }.getOrNull()
+            throw IllegalStateException(detail?.takeIf { it.isNotBlank() } ?: "HTTP $statusCode")
+        }
+        val models = JSONObject(responseText).optJSONArray("models") ?: JSONArray()
+        val options = (0 until models.length()).mapNotNull { index ->
+            val item = models.optJSONObject(index) ?: return@mapNotNull null
+            val methods = item.optJSONArray("supportedGenerationMethods") ?: JSONArray()
+            val supportsTextGeneration = (0 until methods.length()).any { methods.optString(it) == "generateContent" }
+            val rawName = item.optString("name")
+            if (!supportsTextGeneration || !rawName.startsWith("models/gemini-")) return@mapNotNull null
+            val id = rawName.removePrefix("models/")
+            val displayName = item.optString("displayName").ifBlank { id }
+            GeminiModelOption(displayName, id, "Available to this API key; free quota is not guaranteed")
+        }.distinctBy { it.id }.sortedBy { it.label.lowercase(Locale.ROOT) }
+        if (options.isEmpty()) throw IllegalStateException("No Gemini models supporting generateContent were returned")
+        return options
+    } finally {
+        connection.disconnect()
+    }
+}
+
 private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String, modelId: String): String {
+    if (modelId == "auto") {
+        val candidates = listOf("gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash")
+        var lastError: Exception? = null
+        for (candidate in candidates) {
+            try {
+                return summarizeWithGemini(apiKey, topic, sourceText, candidate)
+            } catch (e: Exception) {
+                lastError = e
+            }
+        }
+        throw IllegalStateException("Auto mode tried the fast, balanced, and quality models but none succeeded. Last error: ${lastError?.message ?: "unknown error"}")
+    }
     val prompt = """
         You are formatting a medical student's notes.
         Use ONLY the SOURCE TEXT below. Do not use outside sources, web browsing, or facts from your general knowledge.

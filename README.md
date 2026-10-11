@@ -4,20 +4,18 @@ Native Android medical-notes formatter built with Kotlin and Jetpack Compose.
 
 ## Features
 
-- Paste medical study text in English or Tamil.
-- Translate Tamil text to English using Google's free on-device ML Kit translation model (the model may need to download on first use).
-- Organize text into concise sections: Definition, Etiology/Causes, Classification, Mechanism of Action, Pathogenesis, Clinical Features, Investigations, Treatment, Complications, Prevention, and Important Points.
-- Preserve supplied English definition wording and organize mechanism/pathogenesis lines as flowcharts.
-- Preview notes before exporting.
-- Save a PDF using Android's system document picker.
+- Accept English medical text pasted by the user.
+- Use only the text supplied by the user; no textbook lookup, translation, or added outside medical facts.
+- Organize content under headings such as Definition, Etiology/Causes, Classification, Mechanism of Action, Pathogenesis, Clinical Features, Investigations, Treatment, Complications, Prevention, and Important Points.
+- Display mechanism/pathogenesis content as a simple flowchart when the supplied text is arranged in steps or lines.
+- Preview notes and save them as a PDF through Android's system document picker.
 - No paid API key or video-generation service is used.
 
 ## Important limitations
 
-- This is a rule-based formatter, not a medical AI model. It organizes the text you provide; it does not reliably invent missing medical facts or validate accuracy.
-- Tamil-to-English translation uses a downloadable on-device language model and requires internet access for the initial model download.
-- Flowcharts use the order of the supplied lines. For best results, label sections clearly in the source text.
-- Always check medical definitions and facts against your prescribed textbook before exam use.
+- This version is a rule-based formatter, not an AI medical summarizer. It organizes the supplied text and preserves its wording; it cannot reliably rewrite every long paragraph into a shorter version while guaranteeing that medical meaning is unchanged.
+- For concise results, paste source material with headings and short sentences. Review the generated notes before using them for exams.
+- Medical facts are not independently verified.
 
 ## Build
 

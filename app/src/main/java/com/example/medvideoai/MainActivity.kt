@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -19,12 +20,15 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
@@ -54,6 +58,14 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+private data class GeminiModelOption(val label: String, val id: String, val description: String)
+
+private val geminiModelOptions = listOf(
+    GeminiModelOption("Gemini 3.8 Flash — Best quality", "gemini-3.8-flash", "Latest high-capability Flash model"),
+    GeminiModelOption("Gemini 3.6 Flash — Balanced", "gemini-3.6-flash", "Good balance of speed and quality"),
+    GeminiModelOption("Gemini 3.5 Flash-Lite — Faster / lighter", "gemini-3.5-flash-lite", "Lightweight option; availability and limits may vary")
+)
+
 private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false)
 private data class MedicalNotes(val topic: String, val sections: List<NoteSection>) {
     fun plainText(): String = buildString {
@@ -80,6 +92,8 @@ private fun MedicalNotesScreen() {
     var topic by remember { mutableStateOf("") }
     var sourceText by remember { mutableStateOf("") }
     var apiKey by remember { mutableStateOf("") }
+    var selectedModel by remember { mutableStateOf(geminiModelOptions.first()) }
+    var modelMenuExpanded by remember { mutableStateOf(false) } }
     var notes by remember { mutableStateOf<MedicalNotes?>(null) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
@@ -124,6 +138,20 @@ private fun MedicalNotesScreen() {
                 label = { Text("Optional Gemini API key (not saved)") },
                 placeholder = { Text("Enter your own API key for AI summarization") }
             )
+            Text("Choose a Gemini model. Switch models if one is slow or its quota is unavailable. Free access and rate limits depend on your Google AI Studio account.", style = MaterialTheme.typography.bodySmall)
+            Box(Modifier.fillMaxWidth()) {
+                TextButton(onClick = { modelMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                    Text("AI model: ${selectedModel.label}  ▾")
+                }
+                DropdownMenu(expanded = modelMenuExpanded, onDismissRequest = { modelMenuExpanded = false }) {
+                    geminiModelOptions.forEach { option ->
+                        DropdownMenuItem(
+                            text = { Column { Text(option.label); Text(option.description, style = MaterialTheme.typography.bodySmall) } },
+                            onClick = { selectedModel = option; modelMenuExpanded = false; status = "Selected ${option.label}." }
+                        )
+                    }
+                }
+            }
             Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
@@ -149,7 +177,7 @@ private fun MedicalNotesScreen() {
                     scope.launch {
                         try {
                             val summarized = withContext(Dispatchers.IO) {
-                                summarizeWithGemini(apiKey, title, input)
+                                summarizeWithGemini(apiKey, title, input, selectedModel.id)
                             }
                             notes = formatMedicalNotes(title, restoreExactDefinition(title, input, summarized))
                             status = "AI summary received. Compare the preview with your source before saving."
@@ -223,7 +251,7 @@ private fun restoreExactDefinition(topic: String, sourceText: String, summaryTex
     return lines.joinToString("\n")
 }
 
-private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String): String {
+private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String, modelId: String): String {
     val prompt = """
         You are formatting a medical student's notes.
         Use ONLY the SOURCE TEXT below. Do not use outside sources, web browsing, or facts from your general knowledge.
@@ -240,7 +268,7 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         $sourceText
         SOURCE TEXT END
     """.trimIndent()
-    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=" +
+    val endpoint = "https://generativelanguage.googleapis.com/v1beta/models/$modelId:generateContent?key=" +
         URLEncoder.encode(apiKey, "UTF-8")
     val connection = (URL(endpoint).openConnection() as HttpURLConnection).apply {
         requestMethod = "POST"

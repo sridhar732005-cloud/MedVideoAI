@@ -65,7 +65,24 @@ import java.util.Locale
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { MedicalNotesScreen() } } }
+        val settings = getSharedPreferences("mednotes_settings", android.content.Context.MODE_PRIVATE)
+        val darkModeState = mutableStateOf(settings.getBoolean("dark_mode", false))
+        setContent {
+            val isDarkMode by darkModeState
+            MaterialTheme(
+                colorScheme = if (isDarkMode) androidx.compose.material3.darkColorScheme() else androidx.compose.material3.lightColorScheme()
+            ) {
+                Surface(Modifier.fillMaxSize()) {
+                    MedicalNotesScreen(
+                        isDarkMode = isDarkMode,
+                        onDarkModeChange = { enabled ->
+                            darkModeState.value = enabled
+                            settings.edit().putBoolean("dark_mode", enabled).apply()
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -107,7 +124,7 @@ private data class MedicalNotes(val topic: String, val sections: List<NoteSectio
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MedicalNotesScreen() {
+private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) -> Unit) {
     val context = LocalContext.current
     val draftPrefs = remember { context.getSharedPreferences("mednotes_draft", android.content.Context.MODE_PRIVATE) }
     var topic by remember { mutableStateOf(draftPrefs.getString("topic", "").orEmpty()) }
@@ -220,13 +237,44 @@ private fun MedicalNotesScreen() {
         } else if (uri == null) status = "PDF save cancelled."
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("MedNotes PDF") }) }) { padding ->
+    var settingsMenuExpanded by remember { mutableStateOf(false) }
+    var settingsSubmenuExpanded by remember { mutableStateOf(false) }
+
+    Scaffold(topBar = {
+        TopAppBar(
+            navigationIcon = {
+                Box {
+                    TextButton(onClick = { settingsMenuExpanded = true }) { Text("☰") }
+                    DropdownMenu(
+                        expanded = settingsMenuExpanded,
+                        onDismissRequest = { settingsMenuExpanded = false; settingsSubmenuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Settings") },
+                            onClick = { settingsSubmenuExpanded = !settingsSubmenuExpanded }
+                        )
+                        if (settingsSubmenuExpanded) {
+                            DropdownMenuItem(
+                                text = { Text("☀ Light Mode", color = if (!isDarkMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
+                                onClick = { onDarkModeChange(false); settingsMenuExpanded = false; settingsSubmenuExpanded = false }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("☾ Dark Mode", color = if (isDarkMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
+                                onClick = { onDarkModeChange(true); settingsMenuExpanded = false; settingsSubmenuExpanded = false }
+                            )
+                        }
+                    }
+                }
+            },
+            title = { Text("Med Notes") }
+        )
+    }) { padding ->
         Column(
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+                Text("Create Medical Notes", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
                     topic = ""; sourceText = ""; selectedImage = null; apiKey = ""; selectedModel = geminiModelOptions.first()
                     availableModels = geminiModelOptions; modelMenuExpanded = false; notes = null
@@ -234,7 +282,7 @@ private fun MedicalNotesScreen() {
                     busy = false; status = ""; pdfBytes = null
                 }) { Text("↻ Refresh") }
             }
-            Text("Paste medical text or select an image. Notes and PDF can span multiple pages. Offline mode selects a few points using simple rules; AI mode analyses headings and relationships when Gemini is available. Definitions are preserved when detected; pathogenesis and mechanisms are shown as flowcharts.")
+            Text("Paste medical text or choose an image to create exam-ready notes.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,

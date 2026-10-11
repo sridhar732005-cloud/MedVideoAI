@@ -1,6 +1,5 @@
 package com.example.medvideoai
 
-import android.os.Bundle
 import android.content.ContentValues
 import android.content.Context
 import android.graphics.Bitmap
@@ -11,309 +10,181 @@ import android.media.MediaCodec
 import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import java.io.File
-import java.nio.ByteBuffer
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.File
+import kotlin.math.cos
+import kotlin.math.sin
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent {
-            MaterialTheme {
-                Surface(modifier = Modifier.fillMaxSize()) {
-                    MedicalVideoScreen()
-                }
-            }
-        }
+        setContent { MaterialTheme { Surface(Modifier.fillMaxSize()) { MedicalVideoScreen() } } }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MedicalVideoScreen() {
+private fun MedicalVideoScreen() {
     var topic by remember { mutableStateOf("") }
     var language by remember { mutableStateOf("Both") }
     var duration by remember { mutableStateOf("1 minute") }
-    var style by remember { mutableStateOf("Medical animation") }
-    var showAnimation by remember { mutableStateOf(false) }
+    var showScenes by remember { mutableStateOf(false) }
     var exporting by remember { mutableStateOf(false) }
-    var exportStatus by remember { mutableStateOf("") }
-    val context = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var status by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val scenes = remember(topic) { ScenePlanner.createStoryboard(topic) }
 
-    val topics = listOf(
-        "COPD", "Asthma", "Meniere disease",
-        "Pulmonary hypertension", "Anatomy", "Pathology",
-        "ENT", "Ophthalmology", "Forensic medicine"
-    )
-
-    Scaffold(topBar = { TopAppBar(title = { Text("MedVideo AI — Free Mode") }) }) { innerPadding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("MedVideo AI — Free Mode") }) }) { padding ->
         Column(
-            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(20.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            Modifier.fillMaxSize().padding(padding).padding(18.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("Free offline medical animation", style = MaterialTheme.typography.headlineSmall)
-            Text("Runs on your phone. No Higgsfield API, payment, or internet connection needed for this preview.")
-
+            Text("Text → Medical storyboard → Animation", style = MaterialTheme.typography.headlineSmall)
+            Text("தமிழ் அல்லது English-ல் மருத்துவ விளக்கத்தை எழுதுங்கள். App அதைச் சிறு காட்சிகளாகப் பிரித்து, பொருத்தமான அடிப்படை medical visual-ஐத் தேர்வு செய்யும்.")
             OutlinedTextField(
-                value = topic,
-                onValueChange = { topic = it; showAnimation = false },
-                label = { Text("Medical topic") },
-                placeholder = { Text("e.g. COPD or Meniere disease") },
-                modifier = Modifier.fillMaxWidth(),
-                minLines = 2
+                value = topic, onValueChange = { topic = it; showScenes = false; status = "" },
+                modifier = Modifier.fillMaxWidth(), minLines = 3,
+                label = { Text("Medical text / மருத்துவ விளக்கம்") },
+                placeholder = { Text("உதா: சிறுநீரகத்தில் சிறுநீர் உருவாகி சிறுநீர்ப்பைக்குச் செல்லும் முறை...") }
             )
-
-            Text("Quick topics", style = MaterialTheme.typography.titleMedium)
-            topics.chunked(3).forEach { group ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    group.forEach { item ->
-                        OutlinedButton(
-                            onClick = { topic = item; showAnimation = false },
-                            modifier = Modifier.weight(1f)
-                        ) { Text(item, style = MaterialTheme.typography.labelSmall) }
-                    }
-                    repeat(3 - group.size) { Spacer(Modifier.weight(1f)) }
-                }
+            Text("Examples", style = MaterialTheme.typography.titleMedium)
+            listOf("சிறுநீரகத்தில் சிறுநீர் உருவாகும் முறை", "How the heart pumps blood", "COPD and airway narrowing", "Meniere disease").forEach { example ->
+                OutlinedButton(onClick = { topic = example; showScenes = false }, modifier = Modifier.fillMaxWidth()) { Text(example) }
             }
-
-            Text("Language", style = MaterialTheme.typography.titleMedium)
+            Text("Language / மொழி")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Tamil", "English", "Both").forEach { option ->
-                    FilterChip(
-                        selected = language == option,
-                        onClick = { language = option },
-                        label = { Text(option) }
-                    )
-                }
+                listOf("Tamil", "English", "Both").forEach { FilterChip(language == it, { language = it }, label = { Text(it) }) }
             }
-
-            Text("Preferred lesson duration", style = MaterialTheme.typography.titleMedium)
+            Text("Video duration")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("30 seconds", "1 minute", "3 minutes").forEach { option ->
-                    FilterChip(
-                        selected = duration == option,
-                        onClick = { duration = option },
-                        label = { Text(option) }
-                    )
-                }
+                listOf("30 seconds", "1 minute", "3 minutes").forEach { FilterChip(duration == it, { duration = it }, label = { Text(it) }) }
             }
+            Button(onClick = { showScenes = topic.isNotBlank(); status = if (topic.isBlank()) "முதலில் மருத்துவ Text எழுதுங்கள்." else "" },
+                enabled = topic.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("Analyze Text & Preview Scenes") }
 
-            Text("Visual style", style = MaterialTheme.typography.titleMedium)
-            listOf("Medical animation", "Presenter", "Slides with narration").forEach { option ->
-                FilterChip(
-                    selected = style == option,
-                    onClick = { style = option },
-                    label = { Text(option) }
-                )
-            }
-
-            Button(
-                onClick = { showAnimation = topic.isNotBlank() },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Preview Animation")
-            }
-
-            Button(
-                enabled = !exporting && topic.isNotBlank(),
-                onClick = {
-                    exporting = true
-                    exportStatus = "Creating MP4 on your phone. This may take a few minutes..."
-                    scope.launch {
-                        try {
-                            val fileUri = withContext(Dispatchers.IO) {
-                                exportMedicalVideo(context, topic.trim(), language, duration)
-                            }
-                            exportStatus = "MP4 saved to Movies/MedVideoAI. URI: $fileUri"
-                        } catch (e: Exception) {
-                            exportStatus = "Export failed: ${e.message ?: "Unknown error"}"
-                        } finally {
-                            exporting = false
+            if (showScenes && scenes.isNotEmpty()) {
+                Text("Storyboard (${scenes.size} scenes)", style = MaterialTheme.typography.titleLarge)
+                Text("முதல் கட்டத்தில் scene selection offline rules மூலம் நடக்கிறது; இது முழுமையான AI medical understanding அல்ல.", style = MaterialTheme.typography.bodySmall)
+                scenes.forEachIndexed { index, scene ->
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${scene.stepLabel} • ${scene.title}", style = MaterialTheme.typography.titleMedium)
+                            MedicalSceneCanvas(scene, index)
+                            Text(scene.caption)
                         }
                     }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(if (exporting) "Exporting MP4..." else "Export Free MP4")
-            }
-            if (exportStatus.isNotBlank()) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Text(exportStatus, modifier = Modifier.padding(16.dp))
                 }
-            }
-
-            if (topic.isBlank() && showAnimation) {
-                Text("Please enter a medical topic.")
-            }
-
-            if (showAnimation && topic.isNotBlank()) {
-                Card(modifier = Modifier.fillMaxWidth()) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        Text(topic, style = MaterialTheme.typography.titleLarge)
-                        Text("MEDICAL ANIMATION • FREE OFFLINE PREVIEW")
-                        MedicalAnimationCanvas()
-                        Text(
-                            when (language) {
-                                "Tamil" -> "தமிழ்: $topic பற்றிய கற்றல் காட்சி. இது பொதுவான விளக்க மாதிரி; மருத்துவ உண்மைகளைப் பாடநூலுடன் சரிபார்க்கவும்."
-                                "English" -> "Educational visual for $topic. Verify clinical details with trusted medical references."
-                                else -> "$topic — மருத்துவக் கற்றல் காட்சி / Educational learning visual. Verify clinical details with trusted medical references."
-                            }
-                        )
-                        Text("Selected lesson length: $duration")
-                        Text("Style: $style")
-                        Text(
-                            "MP4 export creates a simple captioned medical-learning animation locally, without paid APIs. This first export version does not include spoken narration or detailed topic-specific medical diagrams.",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                Button(
+                    enabled = !exporting,
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        exporting = true
+                        status = "MP4 உருவாக்கப்படுகிறது..."
+                        scope.launch {
+                            try {
+                                withContext(Dispatchers.IO) { exportMedicalVideo(context, topic.trim(), language, duration) }
+                                status = "MP4 சேமிக்கப்பட்டது: Movies/MedVideoAI"
+                            } catch (e: Exception) {
+                                status = "Export failed: ${e.message ?: "Unknown error"}"
+                            } finally { exporting = false }
+                        }
                     }
-                }
+                ) { Text(if (exporting) "Exporting..." else "Export Storyboard MP4") }
             }
-
-            Text(
-                "Free mode: no paid API or API key is used. Exported videos use a general animated medical template and captions; verify medical facts against trusted references.",
-                style = MaterialTheme.typography.bodySmall
-            )
+            if (status.isNotBlank()) Card(Modifier.fillMaxWidth()) { Text(status, Modifier.padding(14.dp)) }
+            Text("Free mode: no paid API is called. This version uses offline rules and drawn educational visuals. Narration, imported/generated medical images, and AI integration are planned next. Verify medical facts with trusted references.", style = MaterialTheme.typography.bodySmall)
         }
     }
 }
 
 @Composable
-private fun MedicalAnimationCanvas() {
-    val transition = rememberInfiniteTransition(label = "medical-animation")
-    val pulse by transition.animateFloat(
-        initialValue = 0.82f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1100),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "breathing-pulse"
-    )
-
-    Canvas(modifier = Modifier.fillMaxWidth().height(220.dp)) {
-        val centerX = size.width / 2f
-        val centerY = size.height / 2f
-        val lungWidth = size.width * 0.22f
-        val lungHeight = size.height * 0.56f
-        val top = centerY - lungHeight / 2f
-
-        drawLine(
-            color = Color(0xFF6D4CAF),
-            start = Offset(centerX, top - 18f),
-            end = Offset(centerX, centerY + lungHeight * 0.35f),
-            strokeWidth = 12f
-        )
-        drawLine(
-            color = Color(0xFF6D4CAF),
-            start = Offset(centerX, centerY - 10f),
-            end = Offset(centerX - lungWidth * 0.72f, centerY + 8f),
-            strokeWidth = 8f
-        )
-        drawLine(
-            color = Color(0xFF6D4CAF),
-            start = Offset(centerX, centerY - 10f),
-            end = Offset(centerX + lungWidth * 0.72f, centerY + 8f),
-            strokeWidth = 8f
-        )
-
-        drawOval(
-            color = Color(0xFF80CBC4),
-            topLeft = Offset(centerX - lungWidth * 1.15f * pulse, top),
-            size = Size(lungWidth * pulse, lungHeight * pulse)
-        )
-        drawOval(
-            color = Color(0xFF80CBC4),
-            topLeft = Offset(centerX + lungWidth * 0.15f, top),
-            size = Size(lungWidth * pulse, lungHeight * pulse)
-        )
-        drawCircle(
-            color = Color(0xFFFFB74D),
-            radius = 9f + 7f * pulse,
-            center = Offset(centerX, top - 18f),
-            style = Stroke(width = 4f)
-        )
-        drawCircle(
-            color = Color(0xFFEF5350),
-            radius = 5f + 3f * pulse,
-            center = Offset(centerX - lungWidth * 1.4f, centerY + lungHeight * 0.2f)
-        )
-        drawCircle(
-            color = Color(0xFFEF5350),
-            radius = 5f + 3f * pulse,
-            center = Offset(centerX + lungWidth * 1.4f, centerY + lungHeight * 0.2f)
-        )
+private fun MedicalSceneCanvas(scene: MedicalScene, phase: Int) {
+    val transition = rememberInfiniteTransition(label = "scene-$phase")
+    val pulse by transition.animateFloat(0.94f, 1.06f, infiniteRepeatable(tween(950), RepeatMode.Reverse), label = "pulse")
+    Canvas(Modifier.fillMaxWidth().height(160.dp)) {
+        val cx = size.width / 2f
+        val cy = size.height / 2f
+        when (scene.visualType) {
+            MedicalVisualType.KIDNEY -> {
+                drawOval(Color(0xFFB85C65), Offset(cx - 78f * pulse, cy - 45f), Size(65f * pulse, 90f * pulse))
+                drawOval(Color(0xFFB85C65), Offset(cx + 13f, cy - 45f), Size(65f * pulse, 90f * pulse))
+                drawLine(Color(0xFFFFB74D), Offset(cx - 12f, cy + 12f), Offset(cx + 26f, cy + 58f), 5f)
+                drawCircle(Color(0xFFFFB74D), 6f, Offset(cx + 26f, cy + 58f))
+            }
+            MedicalVisualType.HEART -> {
+                drawCircle(Color(0xFFE85D75), 42f * pulse, Offset(cx - 22f, cy - 8f))
+                drawCircle(Color(0xFFE85D75), 42f * pulse, Offset(cx + 22f, cy - 8f))
+                val p = androidx.compose.ui.graphics.Path().apply { moveTo(cx - 60f, cy); cubicTo(cx - 45f, cy + 42f, cx - 12f, cy + 60f, cx, cy + 65f); cubicTo(cx + 16f, cy + 48f, cx + 50f, cy + 24f, cx + 60f, cy) }
+                drawPath(p, Color(0xFFE85D75))
+            }
+            MedicalVisualType.LUNGS -> {
+                drawLine(Color(0xFF6D4CAF), Offset(cx, cy - 55f), Offset(cx, cy + 15f), 8f)
+                drawLine(Color(0xFF6D4CAF), Offset(cx, cy - 3f), Offset(cx - 35f, cy + 13f), 6f)
+                drawLine(Color(0xFF6D4CAF), Offset(cx, cy - 3f), Offset(cx + 35f, cy + 13f), 6f)
+                drawOval(Color(0xFF80CBC4), Offset(cx - 78f * pulse, cy - 32f), Size(70f * pulse, 95f * pulse))
+                drawOval(Color(0xFF80CBC4), Offset(cx + 8f, cy - 32f), Size(70f * pulse, 95f * pulse))
+            }
+            MedicalVisualType.EAR -> {
+                drawOval(Color(0xFFFFB28A), Offset(cx - 40f, cy - 58f), Size(80f, 116f), style = Stroke(10f))
+                drawOval(Color(0xFFFFB28A), Offset(cx - 18f, cy - 30f), Size(42f, 65f), style = Stroke(6f))
+                drawCircle(Color(0xFF6D4CAF), 12f * pulse, Offset(cx + 12f, cy + 12f))
+            }
+            MedicalVisualType.BRAIN -> {
+                drawCircle(Color(0xFFE9A4B5), 43f * pulse, Offset(cx - 23f, cy))
+                drawCircle(Color(0xFFE9A4B5), 43f * pulse, Offset(cx + 23f, cy))
+            }
+            MedicalVisualType.MICROBES -> repeat(8) { i ->
+                val angle = i * Math.PI / 4.0 + phase * 0.1
+                drawCircle(if (i % 2 == 0) Color(0xFFEF5350) else Color(0xFF66BB6A), 11f * pulse,
+                    Offset(cx + cos(angle).toFloat() * 48f, cy + sin(angle).toFloat() * 35f))
+            }
+            MedicalVisualType.EYE -> {
+                drawOval(Color(0xFF80CBC4), Offset(cx - 68f, cy - 35f), Size(136f, 70f), style = Stroke(6f))
+                drawCircle(Color(0xFF3F51B5), 26f * pulse, Offset(cx, cy))
+                drawCircle(Color.Black, 11f, Offset(cx, cy))
+            }
+            MedicalVisualType.GENERIC -> {
+                drawCircle(Color(0xFF80CBC4), 42f * pulse, Offset(cx, cy), style = Stroke(7f))
+                drawLine(Color(0xFF6D4CAF), Offset(cx - 62f, cy), Offset(cx + 62f, cy), 5f)
+                drawLine(Color(0xFF6D4CAF), Offset(cx, cy - 60f), Offset(cx, cy + 60f), 5f)
+            }
+        }
     }
 }
 
-
-private fun exportMedicalVideo(
-    context: Context,
-    topic: String,
-    language: String,
-    durationChoice: String
-): String {
-    val durationSeconds = when (durationChoice) {
-        "30 seconds" -> 30
-        "3 minutes" -> 180
-        else -> 60
-    }
+private fun exportMedicalVideo(context: Context, topic: String, language: String, durationChoice: String) {
+    val seconds = when (durationChoice) { "30 seconds" -> 30; "3 minutes" -> 180; else -> 60 }
     val width = 320
     val height = 568
     val fps = 10
-    val frameCount = durationSeconds * fps
-    val outputFile = File(context.cacheDir, "medvideo_${System.currentTimeMillis()}.mp4")
+    val frameCount = seconds * fps
+    val file = File(context.cacheDir, "medvideo_${System.currentTimeMillis()}.mp4")
     val format = MediaFormat.createVideoFormat(MediaFormat.MIMETYPE_VIDEO_AVC, width, height).apply {
         setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420Planar)
         setInteger(MediaFormat.KEY_BIT_RATE, 650_000)
@@ -322,33 +193,28 @@ private fun exportMedicalVideo(
     }
     val encoder = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_VIDEO_AVC)
     var muxer: MediaMuxer? = null
-    var trackIndex = -1
-    var muxerStarted = false
+    var started = false
     try {
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE)
         encoder.start()
-        muxer = MediaMuxer(outputFile.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
+        muxer = MediaMuxer(file.absolutePath, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4)
         val info = MediaCodec.BufferInfo()
         var frame = 0
         var inputDone = false
         var outputDone = false
+        var track = -1
         while (!outputDone) {
             if (!inputDone) {
                 val inputIndex = encoder.dequeueInputBuffer(10_000)
                 if (inputIndex >= 0) {
-                    val inputBuffer = encoder.getInputBuffer(inputIndex)
-                        ?: throw IllegalStateException("Encoder input buffer unavailable")
-                    inputBuffer.clear()
+                    val input = encoder.getInputBuffer(inputIndex) ?: error("Encoder input buffer unavailable")
+                    input.clear()
                     if (frame < frameCount) {
-                        val bitmap = drawMedicalFrame(width, height, topic, language, frame / fps, durationSeconds)
+                        val bitmap = drawMedicalFrame(width, height, topic, language, frame / fps, seconds)
                         val yuv = bitmapToI420(bitmap)
                         bitmap.recycle()
-                        if (yuv.size > inputBuffer.remaining()) {
-                            throw IllegalStateException("Video frame exceeds encoder buffer capacity")
-                        }
-                        inputBuffer.put(yuv)
-                        val ptsUs = frame * 1_000_000L / fps
-                        encoder.queueInputBuffer(inputIndex, 0, yuv.size, ptsUs, 0)
+                        input.put(yuv)
+                        encoder.queueInputBuffer(inputIndex, 0, yuv.size, frame * 1_000_000L / fps, 0)
                         frame++
                     } else {
                         encoder.queueInputBuffer(inputIndex, 0, 0, frameCount * 1_000_000L / fps, MediaCodec.BUFFER_FLAG_END_OF_STREAM)
@@ -356,25 +222,22 @@ private fun exportMedicalVideo(
                     }
                 }
             }
-
             val outputIndex = encoder.dequeueOutputBuffer(info, 10_000)
             when {
                 outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-                    if (muxerStarted) throw IllegalStateException("Encoder output format changed twice")
-                    trackIndex = muxer.addTrack(encoder.outputFormat)
+                    track = muxer.addTrack(encoder.outputFormat)
                     muxer.start()
-                    muxerStarted = true
+                    started = true
                 }
                 outputIndex >= 0 -> {
-                    val outputBuffer = encoder.getOutputBuffer(outputIndex)
-                        ?: throw IllegalStateException("Encoder output buffer unavailable")
+                    val buffer = encoder.getOutputBuffer(outputIndex) ?: error("Encoder output buffer unavailable")
                     if (info.size > 0) {
-                        if (!muxerStarted) throw IllegalStateException("Muxer has not started")
-                        outputBuffer.position(info.offset)
-                        outputBuffer.limit(info.offset + info.size)
-                        muxer.writeSampleData(trackIndex, outputBuffer, info)
+                        check(started) { "Muxer has not started" }
+                        buffer.position(info.offset)
+                        buffer.limit(info.offset + info.size)
+                        muxer.writeSampleData(track, buffer, info)
                     }
-                    outputDone = (info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0
+                    outputDone = info.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0
                     encoder.releaseOutputBuffer(outputIndex, false)
                 }
             }
@@ -382,7 +245,7 @@ private fun exportMedicalVideo(
     } finally {
         runCatching { encoder.stop() }
         encoder.release()
-        if (muxerStarted) runCatching { muxer?.stop() }
+        if (started) runCatching { muxer?.stop() }
         muxer?.release()
     }
 
@@ -392,193 +255,119 @@ private fun exportMedicalVideo(
         put(MediaStore.Video.Media.RELATIVE_PATH, Environment.DIRECTORY_MOVIES + "/MedVideoAI")
     }
     val resolver = context.contentResolver
-    val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values)
-        ?: throw IllegalStateException("Could not create output video in Movies/MedVideoAI")
+    val uri = resolver.insert(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, values) ?: error("Cannot create output video")
     try {
-        resolver.openOutputStream(uri)?.use { output ->
-            outputFile.inputStream().use { input -> input.copyTo(output) }
-        } ?: throw IllegalStateException("Could not open output video")
+        resolver.openOutputStream(uri)?.use { output -> file.inputStream().use { it.copyTo(output) } } ?: error("Cannot open output video")
     } catch (e: Exception) {
         resolver.delete(uri, null, null)
         throw e
-    } finally {
-        outputFile.delete()
-    }
-    return uri.toString()
+    } finally { file.delete() }
 }
 
-private fun drawMedicalFrame(
-    width: Int,
-    height: Int,
-    topic: String,
-    language: String,
-    elapsedSeconds: Int,
-    totalSeconds: Int
-): Bitmap {
+private fun drawMedicalFrame(width: Int, height: Int, topic: String, language: String, elapsed: Int, duration: Int): Bitmap {
     val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
     val canvas = AndroidCanvas(bitmap)
-    canvas.drawColor(android.graphics.Color.rgb(250, 245, 255))
+    canvas.drawColor(android.graphics.Color.rgb(250, 247, 255))
     val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     paint.color = android.graphics.Color.rgb(100, 70, 160)
-    canvas.drawRoundRect(RectF(18f, 20f, width - 18f, 82f), 18f, 18f, paint)
+    canvas.drawRoundRect(RectF(18f, 20f, width - 18f, 76f), 18f, 18f, paint)
     paint.color = android.graphics.Color.WHITE
-    paint.textSize = 23f
-    paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
-    canvas.drawText("MedVideo AI", 32f, 58f, paint)
+    paint.textSize = 22f
+    paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+    canvas.drawText("MedVideo AI", 30f, 55f, paint)
 
-    val cleanText = topic.replace("\\n", " ").trim()
-    val sentences = cleanText.split(Regex("(?<=[.!?])\\s+|\\n+"))
-        .map { it.trim() }.filter { it.isNotBlank() }
-    val sceneCount = sentences.size.coerceAtLeast(1)
-    val sceneIndex = ((elapsedSeconds.toLong() * sceneCount) / totalSeconds.coerceAtLeast(1))
-        .toInt().coerceIn(0, sceneCount - 1)
-    val sceneText = sentences.getOrElse(sceneIndex) { cleanText }
-    val lower = sceneText.lowercase()
-
+    val scenes = ScenePlanner.createStoryboard(topic).ifEmpty { listOf(MedicalScene("Medical", topic, MedicalVisualType.GENERIC, "Scene 1")) }
+    val index = ((elapsed.toLong() * scenes.size) / duration.coerceAtLeast(1)).toInt().coerceIn(0, scenes.lastIndex)
+    val scene = scenes[index]
     paint.color = android.graphics.Color.rgb(35, 35, 45)
-    paint.textSize = 17f
-    val words = sceneText.split(Regex("\\s+"))
+    paint.textSize = 15f
     var line = ""
-    var y = 118f
-    for (word in words) {
+    var y = 105f
+    scene.caption.split(Regex("\\s+")).forEach { word ->
         val candidate = if (line.isBlank()) word else "$line $word"
-        if (paint.measureText(candidate) > width - 44f) {
-            canvas.drawText(line, 22f, y, paint)
-            y += 23f
-            line = word
+        if (paint.measureText(candidate) > width - 40f && line.isNotBlank()) {
+            canvas.drawText(line, 20f, y, paint); y += 20f; line = word
         } else line = candidate
     }
-    if (line.isNotBlank()) canvas.drawText(line, 22f, y, paint)
+    if (line.isNotBlank()) canvas.drawText(line, 20f, y, paint)
 
     val cx = width / 2f
     val cy = height * 0.49f
-    val pulse = 1f + 0.08f * kotlin.math.sin(elapsedSeconds * 1.5).toFloat()
-    val isHeart = listOf("heart", "cardiac", "cardio", "இதயம்", "இருதயம்").any { lower.contains(it) }
-    val isEar = listOf("ear", "meniere", "vestibular", "cochlea", "காது", "மெனியர்").any { lower.contains(it) }
-    val isMicrobe = listOf("bacteria", "virus", "infection", "microbe", "பாக்டீரியா", "வைரஸ்", "தொற்று").any { lower.contains(it) }
-    val isAirway = listOf("asthma", "copd", "airway", "bronch", "lung", "respirat", "mucus", "breath", "narrow", "நுரையீரல்", "ஆஸ்துமா", "மூச்சு", "சளி", "சுருங்க").any { lower.contains(it) }
-    val isNarrowing = listOf("narrow", "constrict", "சுருங்க", "குறுக").any { lower.contains(it) }
-    val isMucus = listOf("mucus", "phlegm", "sputum", "சளி").any { lower.contains(it) }
-    val isBreathingDifficulty = listOf("difficulty breathing", "breathlessness", "shortness of breath", "dyspnea", "மூச்சுத்திணறல்", "மூச்சுவிட சிரமம்").any { lower.contains(it) }
-
-    if (isHeart) {
-        paint.color = android.graphics.Color.rgb(220, 70, 90)
-        val r = 55f * pulse
-        val path = android.graphics.Path().apply {
-            moveTo(cx, cy + r * 0.95f)
-            cubicTo(cx - r * 1.7f, cy - r * 0.1f, cx - r * 0.85f, cy - r * 1.2f, cx, cy - r * 0.45f)
-            cubicTo(cx + r * 0.85f, cy - r * 1.2f, cx + r * 1.7f, cy - r * 0.1f, cx, cy + r * 0.95f)
+    val pulse = 1f + 0.07f * sin(elapsed * 1.4).toFloat()
+    when (scene.visualType) {
+        MedicalVisualType.KIDNEY -> {
+            paint.color = android.graphics.Color.rgb(184, 92, 101)
+            canvas.drawOval(RectF(cx - 78f * pulse, cy - 48f * pulse, cx - 15f, cy + 48f * pulse), paint)
+            canvas.drawOval(RectF(cx + 15f, cy - 48f * pulse, cx + 78f * pulse, cy + 48f * pulse), paint)
+            paint.color = android.graphics.Color.rgb(255, 183, 77); paint.strokeWidth = 6f
+            canvas.drawLine(cx - 15f, cy + 14f, cx + 28f, cy + 78f, paint)
         }
-        canvas.drawPath(path, paint)
-        paint.color = android.graphics.Color.rgb(120, 40, 60)
-        paint.strokeWidth = 8f
-        canvas.drawLine(cx - 75f, cy + 65f, cx - 35f, cy + 65f, paint)
-        canvas.drawLine(cx - 35f, cy + 65f, cx - 18f, cy + 35f, paint)
-        canvas.drawLine(cx - 18f, cy + 35f, cx + 2f, cy + 84f, paint)
-        canvas.drawLine(cx + 2f, cy + 84f, cx + 25f, cy + 55f, paint)
-        canvas.drawLine(cx + 25f, cy + 55f, cx + 75f, cy + 55f, paint)
-    } else if (isEar) {
-        paint.color = android.graphics.Color.rgb(255, 183, 140)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 14f
-        canvas.drawOval(RectF(cx - 62f, cy - 85f, cx + 50f, cy + 88f), paint)
-        canvas.drawOval(RectF(cx - 32f, cy - 45f, cx + 23f, cy + 50f), paint)
-        canvas.drawArc(RectF(cx - 12f, cy - 20f, cx + 65f, cy + 70f), 100f, 220f, false, paint)
-        paint.style = Paint.Style.FILL
-        paint.color = android.graphics.Color.rgb(109, 76, 175)
-        canvas.drawCircle(cx + 16f, cy + 17f, 12f + 4f * pulse, paint)
-    } else if (isMicrobe) {
-        for (i in 0..7) {
-            val angle = i * (Math.PI / 4.0) + elapsedSeconds * 0.25
-            val x = cx + kotlin.math.cos(angle).toFloat() * (35f + (i % 3) * 18f)
-            val yy = cy + kotlin.math.sin(angle).toFloat() * (40f + (i % 2) * 20f)
+        MedicalVisualType.HEART -> {
+            paint.color = android.graphics.Color.rgb(220, 70, 90)
+            canvas.drawCircle(cx - 22f, cy - 10f, 40f * pulse, paint)
+            canvas.drawCircle(cx + 22f, cy - 10f, 40f * pulse, paint)
+            val p = android.graphics.Path().apply { moveTo(cx - 58f, cy); cubicTo(cx - 42f, cy + 42f, cx - 10f, cy + 58f, cx, cy + 65f); cubicTo(cx + 16f, cy + 45f, cx + 48f, cy + 24f, cx + 58f, cy) }
+            canvas.drawPath(p, paint)
+        }
+        MedicalVisualType.LUNGS -> {
+            paint.color = android.graphics.Color.rgb(109, 76, 175); paint.strokeWidth = 8f
+            canvas.drawLine(cx, cy - 65f, cx, cy + 15f, paint)
+            canvas.drawLine(cx, cy - 5f, cx - 40f, cy + 15f, paint)
+            canvas.drawLine(cx, cy - 5f, cx + 40f, cy + 15f, paint)
+            paint.color = android.graphics.Color.rgb(128, 203, 196)
+            canvas.drawOval(RectF(cx - 86f * pulse, cy - 52f, cx - 12f, cy + 78f * pulse), paint)
+            canvas.drawOval(RectF(cx + 12f, cy - 52f, cx + 86f * pulse, cy + 78f * pulse), paint)
+        }
+        MedicalVisualType.EAR -> {
+            paint.color = android.graphics.Color.rgb(255, 178, 138); paint.style = Paint.Style.STROKE; paint.strokeWidth = 12f
+            canvas.drawOval(RectF(cx - 55f, cy - 70f, cx + 45f, cy + 70f), paint)
+            canvas.drawOval(RectF(cx - 25f, cy - 35f, cx + 18f, cy + 40f), paint)
+            paint.style = Paint.Style.FILL
+        }
+        MedicalVisualType.BRAIN -> {
+            paint.color = android.graphics.Color.rgb(233, 164, 181)
+            canvas.drawCircle(cx - 22f, cy, 43f * pulse, paint); canvas.drawCircle(cx + 22f, cy, 43f * pulse, paint)
+        }
+        MedicalVisualType.MICROBES -> repeat(8) { i ->
+            val a = i * Math.PI / 4.0 + elapsed * 0.25
             paint.color = if (i % 2 == 0) android.graphics.Color.rgb(239, 83, 80) else android.graphics.Color.rgb(102, 187, 106)
-            canvas.drawCircle(x, yy, 13f * pulse, paint)
-            paint.color = android.graphics.Color.rgb(70, 70, 70)
-            paint.strokeWidth = 2f
-            canvas.drawLine(x - 17f, yy, x - 11f, yy, paint)
-            canvas.drawLine(x + 11f, yy, x + 17f, yy, paint)
+            canvas.drawCircle(cx + cos(a).toFloat() * 45f, cy + sin(a).toFloat() * 40f, 12f * pulse, paint)
         }
-    } else {
-        paint.color = android.graphics.Color.rgb(109, 76, 175)
-        paint.strokeWidth = 10f
-        canvas.drawLine(cx, cy - 80f, cx, cy + 40f, paint)
-        canvas.drawLine(cx, cy - 10f, cx - 45f, cy + 15f, paint)
-        canvas.drawLine(cx, cy - 10f, cx + 45f, cy + 15f, paint)
-        paint.color = android.graphics.Color.rgb(128, 203, 196)
-        canvas.drawOval(RectF(cx - 88f * pulse, cy - 65f * pulse, cx - 12f, cy + 100f * pulse), paint)
-        canvas.drawOval(RectF(cx + 12f, cy - 65f * pulse, cx + 88f * pulse, cy + 100f * pulse), paint)
-        if (isAirway) {
-            paint.color = android.graphics.Color.rgb(239, 83, 80)
-            paint.strokeWidth = 7f
-            canvas.drawLine(cx - 42f, cy + 4f, cx - 15f, cy + 4f, paint)
-            canvas.drawLine(cx + 15f, cy + 4f, cx + 42f, cy + 4f, paint)
-            paint.color = android.graphics.Color.rgb(255, 183, 77)
-            canvas.drawCircle(cx - 26f, cy + 4f, 8f, paint)
-            canvas.drawCircle(cx + 26f, cy + 4f, 8f, paint)
-            if (isNarrowing) {
-                paint.color = android.graphics.Color.rgb(239, 83, 80)
-                paint.strokeWidth = 13f
-                canvas.drawLine(cx - 48f, cy + 4f, cx - 15f, cy + 4f, paint)
-                canvas.drawLine(cx + 15f, cy + 4f, cx + 48f, cy + 4f, paint)
-            }
-            if (isMucus) {
-                paint.color = android.graphics.Color.rgb(255, 183, 77)
-                canvas.drawCircle(cx - 25f, cy + 22f, 8f + 2f * pulse, paint)
-                canvas.drawCircle(cx, cy + 24f, 7f + 2f * pulse, paint)
-                canvas.drawCircle(cx + 24f, cy + 22f, 8f + 2f * pulse, paint)
-            }
-            if (isBreathingDifficulty) {
-                paint.color = android.graphics.Color.rgb(239, 83, 80)
-                paint.textSize = 15f
-                canvas.drawText("BREATHING DIFFICULTY", 42f, cy + 132f, paint)
-            }
+        MedicalVisualType.EYE -> {
+            paint.style = Paint.Style.STROKE; paint.strokeWidth = 7f; paint.color = android.graphics.Color.rgb(128, 203, 196)
+            canvas.drawOval(RectF(cx - 70f, cy - 36f, cx + 70f, cy + 36f), paint)
+            paint.style = Paint.Style.FILL; paint.color = android.graphics.Color.rgb(63, 81, 181); canvas.drawCircle(cx, cy, 25f * pulse, paint)
+        }
+        MedicalVisualType.GENERIC -> {
+            paint.style = Paint.Style.STROKE; paint.strokeWidth = 8f; paint.color = android.graphics.Color.rgb(128, 203, 196)
+            canvas.drawCircle(cx, cy, 45f * pulse, paint)
+            paint.color = android.graphics.Color.rgb(109, 76, 175); canvas.drawLine(cx - 60f, cy, cx + 60f, cy, paint)
+            paint.style = Paint.Style.FILL
         }
     }
-
-    paint.color = android.graphics.Color.rgb(70, 60, 90)
-    paint.textSize = 15f
-    val caption = when (language) {
-        "Tamil" -> "தமிழ் மருத்துவக் காட்சி"
-        "English" -> "Medical learning visual"
-        else -> "தமிழ் / English medical visual"
-    }
-    canvas.drawText(caption, 20f, height - 86f, paint)
-    paint.color = android.graphics.Color.rgb(110, 95, 130)
-    paint.textSize = 13f
-    canvas.drawText("Scene ${sceneIndex + 1}/$sceneCount • educational template", 20f, height - 58f, paint)
-    canvas.drawRoundRect(RectF(20f, height - 38f, width - 20f, height - 27f), 6f, 6f, paint)
+    paint.color = android.graphics.Color.rgb(70, 60, 90); paint.textSize = 13f
+    canvas.drawText(if (language == "Tamil") "தமிழ் மருத்துவக் காட்சி" else "Medical learning visual", 20f, height - 80f, paint)
+    canvas.drawText("${index + 1}/${scenes.size} • ${scene.title.take(22)}", 20f, height - 56f, paint)
     paint.color = android.graphics.Color.rgb(109, 76, 175)
-    val progress = (elapsedSeconds.toFloat() / totalSeconds.coerceAtLeast(1)).coerceIn(0f, 1f)
-    canvas.drawRoundRect(RectF(20f, height - 38f, 20f + (width - 40f) * progress, height - 27f), 6f, 6f, paint)
+    canvas.drawRoundRect(RectF(20f, height - 36f, 20f + (width - 40f) * (elapsed.toFloat() / duration).coerceIn(0f, 1f), height - 25f), 6f, 6f, paint)
     return bitmap
 }
 
 private fun bitmapToI420(bitmap: Bitmap): ByteArray {
-    val width = bitmap.width
-    val height = bitmap.height
-    val pixels = IntArray(width * height)
-    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
-    val frameSize = width * height
-    val output = ByteArray(frameSize * 3 / 2)
-    var yIndex = 0
-    var uIndex = frameSize
-    var vIndex = frameSize + frameSize / 4
-    for (row in 0 until height) {
-        for (col in 0 until width) {
-            val color = pixels[row * width + col]
-            val r = (color shr 16) and 0xff
-            val g = (color shr 8) and 0xff
-            val b = color and 0xff
-            val y = (((66 * r + 129 * g + 25 * b + 128) shr 8) + 16).coerceIn(0, 255)
-            output[yIndex++] = y.toByte()
-            if (row % 2 == 0 && col % 2 == 0) {
-                val u = (((-38 * r - 74 * g + 112 * b + 128) shr 8) + 128).coerceIn(0, 255)
-                val v = (((112 * r - 94 * g - 18 * b + 128) shr 8) + 128).coerceIn(0, 255)
-                output[uIndex++] = u.toByte()
-                output[vIndex++] = v.toByte()
-            }
+    val w = bitmap.width; val h = bitmap.height
+    val pixels = IntArray(w * h)
+    bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
+    val frameSize = w * h
+    val out = ByteArray(frameSize * 3 / 2)
+    var yi = 0; var ui = frameSize; var vi = frameSize + frameSize / 4
+    for (row in 0 until h) for (col in 0 until w) {
+        val c = pixels[row * w + col]
+        val r = c shr 16 and 255; val g = c shr 8 and 255; val b = c and 255
+        out[yi++] = ((((66*r + 129*g + 25*b + 128) shr 8) + 16).coerceIn(0,255)).toByte()
+        if (row % 2 == 0 && col % 2 == 0) {
+            out[ui++] = ((((-38*r - 74*g + 112*b + 128) shr 8) + 128).coerceIn(0,255)).toByte()
+            out[vi++] = ((((112*r - 94*g - 18*b + 128) shr 8) + 128).coerceIn(0,255)).toByte()
         }
     }
-    return output
+    return out
 }

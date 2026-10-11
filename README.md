@@ -1,34 +1,33 @@
 # MedVideoAI
 
-Native Android starter project for an AI Medical Video Generator, built with Kotlin and Jetpack Compose.
+Native Android medical storyboard and animation prototype built with Kotlin and Jetpack Compose.
 
-## Features
-- Medical topic input and quick topic presets
-- Tamil, English, or bilingual prompt preference
-- Preferred final duration and visual style
-- Higgsfield API test generation button
-- Generation status and Open video action
+## Current free-mode features
 
-## Local Higgsfield test setup
+- Enter medical text in Tamil or English.
+- Split text into a storyboard of up to 12 scenes.
+- Rule-based topic matching for kidney, heart, lungs, ear, brain, microbes, and eye.
+- Preview simple animated educational illustrations for each scene.
+- Export a captioned template MP4 to Movies/MedVideoAI in 30-second, 1-minute, or 3-minute durations.
+- No paid video-generation API or API key is used by the current free-mode code.
 
-1. In the project root (the same folder as `settings.gradle.kts`), create or edit `local.properties`.
-2. Add this line, using your own API key locally:
+## Important current limitations
 
-   ```properties
-   HIGGSFIELD_API_KEY=YOUR_COMPLETE_HIGGSFIELD_API_KEY
-   ```
+This version uses offline keyword/rule-based matching. It is **not** a general-purpose AI model and cannot reliably understand every medical description. The illustrations are simple shapes rather than detailed anatomical images. The current MP4 export does not yet include spoken narration, imported AI images, or generated AI video. Please verify medical details against trusted medical references.
 
-3. Do not add the key to GitHub, screenshots, or chat. The root `.gitignore` excludes `local.properties`.
-4. Sync Gradle and build the debug APK.
-5. In the app, enter a medical topic and tap **Generate Test Video (5 sec)**. This sends a single five-second text-to-video request using the Seedance 2.0 endpoint, then polls the returned status URL. It may consume paid API credits.
+## Planned improvements
 
-## Important security limitation
+1. Improve medical text analysis and the scene-by-scene storyboard.
+2. Add more topic-specific medical illustrations and motion.
+3. Add Android Text-to-Speech narration and synchronize captions.
+4. Allow users to import images they generated separately, including images created in ChatGPT.
+5. Evaluate optional AI services only after checking free-tier limits, privacy, and fallback behavior. Do not assume any external image/video generation API is free.
 
-This is a private prototype integration only. The Gradle configuration injects the API key into Android BuildConfig, which means it is embedded in the APK and can be extracted by someone who obtains the APK. Do not distribute this build or publish it to Play Store. Before sharing/releasing the app, move provider requests to a secure backend and rotate the test API key if the APK was shared.
+## Build
 
-The selected duration is currently prompt guidance only; the live API test deliberately generates a five-second clip. The chosen visual style and language are included in the prompt, but do not guarantee narration or a specific presentation style. API access, billing, and model availability depend on the Higgsfield account.
+- Package: `com.example.medvideoai`
+- Use JDK 17 and Android SDK 35.
+- Open the repository in Android Studio or AndroidIDE, sync Gradle, then run `./gradlew clean assembleDebug`.
+- The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
 
-## Android build
-Open this repository as a Gradle project in Android Studio or a compatible Android IDE. Use JDK 17 and Android SDK 35, sync Gradle, then build the `app` configuration.
-
-Package: `com.example.medvideoai`
+No API key is required for free mode. Never commit API keys, `local.properties`, or signing keys to the repository.

@@ -535,7 +535,7 @@ private fun restoreExactDefinition(topic: String, sourceText: String, summaryTex
         .firstOrNull { it.title == "Definition" } ?: return summaryText
     val lines = summaryText.lines().toMutableList()
     val definitionHeading = Regex("^\\s*(?:#+\\s*)?definition\\s*:?(?:\\s+.*)?$", RegexOption.IGNORE_CASE)
-    val start = lines.indexOfFirst { definitionHeading.matches(it.trim()) }
+    val start = lines.indexOfFirst { definitionHeading.matches(it.trim().replace(Regex("[*_\\\\`]+"), "")) }
     val sectionHeading = Regex(
         "^\\s*(?:#+\\s*)?(definition|etiology(?:\\s*/\\s*causes)?|causes?|risk factors|classification|types?|mechanism(?: of action)?|pathogenesis|clinical features|symptoms|signs|investigations|diagnosis|tests|treatment|management|therapy|complications|prevention|prophylaxis)\\s*:?\\s*$",
         RegexOption.IGNORE_CASE
@@ -545,7 +545,8 @@ private fun restoreExactDefinition(topic: String, sourceText: String, summaryTex
     }
     var end = lines.size
     for (i in (start + 1) until lines.size) {
-        if (sectionHeading.matches(lines[i]) && !definitionHeading.matches(lines[i])) {
+        val normalizedHeading = lines[i].trim().replace(Regex("[*_\\\\`]+"), "")
+        if (sectionHeading.matches(normalizedHeading) && !definitionHeading.matches(normalizedHeading)) {
             end = i
             break
         }
@@ -1044,7 +1045,7 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
     }
     val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.rgb(35, 35, 35)
-        textSize = 10.5f
+        textSize = 11.5f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
     }
     val sectionBackgroundColors = intArrayOf(
@@ -1130,7 +1131,7 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
 
     fun drawBulletCard(text: String, paint: Paint, backgroundColor: Int, leftBullet: String = "•") {
         val paddingX = 11f
-        val lineHeight = 16f
+        val lineHeight = 17f
         val maxWidth = pageWidth - margin * 2 - paddingX * 2 - paint.measureText("$leftBullet ")
         val lines = wrapForWidth(text, paint, maxWidth)
         val cardHeight = lines.size * lineHeight + 15f
@@ -1186,7 +1187,9 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
     var visualIndex = 0
     notes.sections.forEachIndexed { sectionIndex, section ->
         val sectionColor = sectionBackgroundColors[sectionIndex % sectionBackgroundColors.size]
-        ensureSpace(34f)
+        val reserveSpace = if (section.visualHint != null && visualIndex < visuals.size) 220f
+            else if (section.flowchart) 100f else 80f
+        ensureSpace(reserveSpace)
         y += 8f
         sectionBgPaint.color = if (section.important) android.graphics.Color.rgb(255, 213, 128) else sectionColor
         canvas!!.drawRoundRect(margin - 5f, y - 14f, pageWidth - margin + 5f, y + 7f, 5f, 5f, sectionBgPaint)

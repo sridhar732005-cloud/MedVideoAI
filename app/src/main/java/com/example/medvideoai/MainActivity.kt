@@ -426,7 +426,36 @@ private fun MedicalNotesScreen() {
                                     style = if (section.important) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
                                     color = headingColor
                                 )
-                                if (section.flowchart) {
+                                if (section.title.contains("differentiation", ignoreCase = true) || section.lines.any { it.count { ch -> ch == '|' } >= 1 }) {
+                                    section.lines.forEachIndexed { rowIndex, line ->
+                                        val cells = line.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+                                        if (cells.size >= 2) {
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                            ) {
+                                                cells.forEachIndexed { cellIndex, cell ->
+                                                    Card(
+                                                        modifier = Modifier.weight(1f),
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        colors = androidx.compose.material3.CardDefaults.cardColors(
+                                                            containerColor = if (rowIndex == 0) Color(0xFFD5E7FF) else sectionColors[(rowIndex + cellIndex + sectionIndex) % sectionColors.size]
+                                                        )
+                                                    ) {
+                                                        Text(
+                                                            cell,
+                                                            modifier = Modifier.fillMaxWidth().padding(7.dp),
+                                                            style = if (rowIndex == 0) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodySmall,
+                                                            color = Color(0xFF203047)
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            Text(line, color = Color(0xFF202124), style = MaterialTheme.typography.bodyMedium)
+                                        }
+                                    }
+                                } else if (section.flowchart) {
                                     section.lines.forEachIndexed { index, line ->
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),

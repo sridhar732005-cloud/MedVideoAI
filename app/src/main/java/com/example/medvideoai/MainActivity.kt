@@ -345,13 +345,19 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         setRequestProperty("Content-Type", "application/json; charset=UTF-8")
     }
     try {
+        val generationConfig = JSONObject().put("maxOutputTokens", 8192)
+        // thinkingLevel is only sent to Gemini 3.x models; older model families may reject it.
+        if (modelId.startsWith("gemini-3.")) {
+            generationConfig.put(
+                "thinkingConfig",
+                JSONObject().put("thinkingLevel", if (modelId.contains("lite")) "low" else "high")
+            )
+        }
         val requestBody = JSONObject()
             .put("contents", JSONArray().put(
                 JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
             ))
-            .put("generationConfig", JSONObject()
-                .put("thinkingConfig", JSONObject().put("thinkingLevel", if (modelId.contains("lite")) "low" else "high"))
-                .put("maxOutputTokens", 8192))
+            .put("generationConfig", generationConfig))
         connection.outputStream.use { it.write(requestBody.toString().toByteArray(Charsets.UTF_8)) }
         val statusCode = connection.responseCode
         val stream = if (statusCode in 200..299) connection.inputStream else connection.errorStream

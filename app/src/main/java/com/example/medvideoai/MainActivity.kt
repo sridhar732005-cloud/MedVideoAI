@@ -1087,73 +1087,77 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
             startPage()
         }
     }
-    fun drawWrapped(
-        text: String,
-        paint: Paint,
-        indent: Float = 0f,
-        sectionBg: Int? = null,
-        darkImportant: Boolean = false
-    ) {
-        val maxWidth = pageWidth - margin * 2 - indent
-        val words = text.split(Regex("\\s+"))
-        var line = ""
-        fun drawLine(lineText: String) {
-            ensureSpace(19f)
-            val left = margin - 5f
-            val right = pageWidth - margin + 5f
-            if (darkImportant) {
-                importantBgPaint.color = android.graphics.Color.rgb(255, 213, 128)
-                canvas!!.drawRoundRect(left, y - 13f, right, y + 5f, 4f, 4f, importantBgPaint)
-            } else if (sectionBg != null) {
-                sectionBgPaint.color = sectionBg
-                canvas!!.drawRoundRect(left, y - 12f, right, y + 4f, 4f, 4f, sectionBgPaint)
-            }
-            canvas!!.drawText(lineText, margin + indent, y, paint)
-            y += 16f
-        }
-        words.forEach { word ->
-            val candidate = if (line.isBlank()) word else "$line $word"
-            if (paint.measureText(candidate) > maxWidth && line.isNotBlank()) {
-                drawLine(line)
-                line = word
-            } else line = candidate
-        }
-        if (line.isNotBlank()) drawLine(line)
-    }
-
-    fun drawFlowNode(text: String, color: Int) {
-        val nodePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = color
-            style = Paint.Style.FILL
-        }
-        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = android.graphics.Color.rgb(29, 48, 75)
-            textSize = 10.5f
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-        val maxTextWidth = pageWidth - margin * 2 - 32f
+    fun wrapForWidth(text: String, paint: Paint, maxWidth: Float): List<String> {
         val words = text.split(Regex("\\s+"))
         val lines = mutableListOf<String>()
         var line = ""
         words.forEach { word ->
             val candidate = if (line.isBlank()) word else "$line $word"
-            if (textPaint.measureText(candidate) > maxTextWidth && line.isNotBlank()) {
+            if (paint.measureText(candidate) > maxWidth && line.isNotBlank()) {
                 lines.add(line)
                 line = word
             } else line = candidate
         }
         if (line.isNotBlank()) lines.add(line)
-        val nodeHeight = (lines.size * 14f + 16f).coerceAtLeast(34f)
-        ensureSpace(nodeHeight + 22f)
+        return lines.ifEmpty { listOf("") }
+    }
+
+    fun drawWrapped(text: String, paint: Paint, indent: Float = 0f, sectionBg: Int? = null) {
+        val maxWidth = pageWidth - margin * 2 - indent
+        val lines = wrapForWidth(text, paint, maxWidth)
+        lines.forEach { lineText ->
+            ensureSpace(18f)
+            if (sectionBg != null) {
+                sectionBgPaint.color = sectionBg
+                canvas!!.drawRoundRect(margin - 4f, y - 12f, pageWidth - margin + 4f, y + 5f, 4f, 4f, sectionBgPaint)
+            }
+            canvas!!.drawText(lineText, margin + indent, y, paint)
+            y += 16f
+        }
+    }
+
+    fun drawBulletCard(text: String, paint: Paint, backgroundColor: Int, leftBullet: String = "•") {
+        val paddingX = 11f
+        val lineHeight = 16f
+        val maxWidth = pageWidth - margin * 2 - paddingX * 2 - paint.measureText("$leftBullet ")
+        val lines = wrapForWidth(text, paint, maxWidth)
+        val cardHeight = lines.size * lineHeight + 15f
+        ensureSpace(cardHeight + 10f)
+        val top = y - 11f
+        val bottom = y + cardHeight - 7f
+        sectionBgPaint.color = backgroundColor
+        canvas!!.drawRoundRect(margin - 4f, top, pageWidth - margin + 4f, bottom, 7f, 7f, sectionBgPaint)
+        canvas!!.drawText(leftBullet, margin + paddingX, y + 5f, paint)
+        lines.forEachIndexed { index, lineText ->
+            canvas!!.drawText(
+                lineText,
+                margin + paddingX + paint.measureText("$leftBullet "),
+                y + 5f + index * lineHeight,
+                paint
+            )
+        }
+        y += cardHeight + 7f
+    }
+    fun drawFlowNode(text: String, color: Int) {
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = android.graphics.Color.rgb(29, 48, 75)
+            textSize = 11.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val maxTextWidth = pageWidth - margin * 2 - 48f
+        val lines = wrapForWidth(text, textPaint, maxTextWidth)
+        val lineHeight = 15f
+        val nodeHeight = (lines.size * lineHeight + 18f).coerceAtLeast(36f)
+        ensureSpace(nodeHeight + 20f)
         val left = margin + 12f
         val right = pageWidth - margin - 12f
         sectionBgPaint.color = color
-        canvas!!.drawRoundRect(left, y - 14f, right, y - 14f + nodeHeight, 7f, 7f, sectionBgPaint)
-        lines.forEachIndexed { i, nodeLine ->
+        canvas!!.drawRoundRect(left, y - 12f, right, y - 12f + nodeHeight, 8f, 8f, sectionBgPaint)
+        lines.forEachIndexed { index, nodeLine ->
             val textWidth = textPaint.measureText(nodeLine)
-            canvas!!.drawText(nodeLine, (pageWidth - textWidth) / 2f, y + 5f + i * 14f, textPaint)
+            canvas!!.drawText(nodeLine, (pageWidth - textWidth) / 2f, y + 5f + index * lineHeight, textPaint)
         }
-        y += nodeHeight
+        y += nodeHeight + 2f
     }
 
     fun drawFlowArrow() {
@@ -1199,19 +1203,20 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
                 drawFlowNode(line, sectionBackgroundColors[index % sectionBackgroundColors.size])
                 if (index < section.lines.lastIndex) drawFlowArrow()
             }
+            y += 5f
         } else if (section.mindMap && section.lines.isNotEmpty()) {
-            drawWrapped("●  ${section.lines.first()}", sectionTextPaint, sectionBg = sectionColor)
+            drawBulletCard(section.lines.first(), sectionTextPaint, sectionColor, leftBullet = "●")
             section.lines.drop(1).forEach { branch ->
-                drawWrapped("   ├─  $branch", bodyPaint, indent = 12f, sectionBg = sectionColor)
+                drawBulletCard(branch, bodyPaint, sectionColor, leftBullet = "↳")
             }
         } else {
             section.lines.forEach { line ->
-                val text = if (section.important) "★  $line" else "•  $line"
-                drawWrapped(
-                    text,
+                val cardColor = if (section.important) android.graphics.Color.rgb(255, 227, 163) else sectionColor
+                drawBulletCard(
+                    line,
                     if (section.important) headingPaint else bodyPaint,
-                    sectionBg = sectionColor,
-                    darkImportant = section.important
+                    cardColor,
+                    leftBullet = if (section.important) "★" else "•"
                 )
             }
         }

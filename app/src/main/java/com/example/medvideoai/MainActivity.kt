@@ -72,10 +72,7 @@ class MainActivity : ComponentActivity() {
 private data class GeminiModelOption(val label: String, val id: String, val description: String)
 
 private val geminiModelOptions = listOf(
-    GeminiModelOption("Auto — try fastest available", "auto", "Tries lighter models first and falls back if unavailable"),
-    GeminiModelOption("Gemini 3.5 Flash-Lite — Fast / light", "gemini-3.5-flash-lite", "Lower-latency option when enabled for your API key"),
-    GeminiModelOption("Gemini 3.6 Flash — Balanced", "gemini-3.6-flash", "Balance of speed and answer quality"),
-    GeminiModelOption("Gemini 3.8 Flash — Quality", "gemini-3.8-flash", "Higher-capability option when enabled for your API key")
+    GeminiModelOption("Auto — use available models", "auto", "Checks available model IDs and tries alternatives on temporary errors")
 )
 
 private data class NoteSection(
@@ -296,7 +293,11 @@ private fun MedicalNotesScreen() {
                             val models = withContext(Dispatchers.IO) { fetchAvailableGeminiModels(apiKey) }
                             availableModels = listOf(geminiModelOptions.first()) + models
                             if (availableModels.none { it.id == selectedModel.id }) selectedModel = availableModels.first()
-                            status = "Model list refreshed: ${models.size} Gemini model(s) support text generation for this API key. Free quota varies by account."
+                            status = if (models.isEmpty()) {
+                                "Google returned no compatible Gemini models for this API key."
+                            } else {
+                                "Model list refreshed: ${models.size} exact model ID(s) returned by Google. Auto will try available Flash models first."
+                            }
                         } catch (e: Exception) {
                             status = "Could not refresh model list: ${e.message ?: "unknown error"}. Existing choices are still available."
                         } finally {
@@ -375,7 +376,16 @@ private fun MedicalNotesScreen() {
                                 visualLookupBusy = false
                             }
                         } catch (e: Exception) {
-                            status = "AI summary failed: ${e.message ?: "unknown error"}. You can still use Offline Short Notes."
+                            val detail = e.message ?: "unknown error"
+                            status = when {
+                                detail.contains("HTTP 503") || detail.contains("high demand", ignoreCase = true) ->
+                                    "Gemini server is overloaded (503). Auto tried available models and retried temporary errors. Wait 30–60 seconds and try again; if it continues, tap Refresh models and choose another available model. This server error cannot be fully fixed in app code."
+                                detail.contains("HTTP 429") || detail.contains("RESOURCE_EXHAUSTED", ignoreCase = true) ->
+                                    "Gemini rate/quota limit reached (429). Wait for the limit to reset or check Google AI Studio usage and selected-model limits. Details: $detail"
+                                detail.contains("HTTP 400") || detail.contains("HTTP 401") || detail.contains("HTTP 403") ->
+                                    "Gemini request/key/model access problem. Check the API key, selected model, and Google AI Studio project. Details: $detail"
+                                else -> "AI summary failed: $detail. You can still use Offline Short Notes."
+                            }
                         } finally {
                             busy = false
                         }
@@ -496,7 +506,8 @@ private fun fetchAvailableGeminiModels(apiKey: String): List<GeminiModelOption> 
         val responseText = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
         if (statusCode !in 200..299) {
             val detail = runCatching { JSONObject(responseText).getJSONObject("error").optString("message") }.getOrNull()
-            throw IllegalStateException(detail?.takeIf { it.isNotBlank() } ?: "HTTP $statusCode")
+            val serverMessage = detail?.takeIf { it.isNotBlank() } ?: "No error details from server"
+            throw IllegalStateException("HTTP $statusCode: $serverMessage")
         }
         val models = JSONObject(responseText).optJSONArray("models") ?: JSONArray()
         val options = (0 until models.length()).mapNotNull { index ->
@@ -507,8 +518,25 @@ private fun fetchAvailableGeminiModels(apiKey: String): List<GeminiModelOption> 
             if (!supportsTextGeneration || !rawName.startsWith("models/gemini-")) return@mapNotNull null
             val id = rawName.removePrefix("models/")
             val displayName = item.optString("displayName").ifBlank { id }
-            GeminiModelOption(displayName, id, "Available to this API key; free quota is not guaranteed")
-        }.distinctBy { it.id }.sortedBy { it.label.lowercase(Locale.ROOT) }
+            val normalizedId = id.lowercase(Locale.ROOT)
+            // Prefer stable Flash models and list only exact IDs returned by Google's API.
+            val priority = when {
+                normalizedId.contains("flash-lite") -> "Fast"
+                normalizedId.contains("flash") -> "Balanced"
+                normalizedId.contains("pro") -> "Quality"
+                else -> "Other"
+            }
+            GeminiModelOption(id, id, "$priority — $displayName; server availability and quota can vary")
+        }.distinctBy { it.id }.sortedWith(
+            compareBy<GeminiModelOption> {
+                when {
+                    it.id.contains("flash-lite", ignoreCase = true) -> 0
+                    it.id.contains("flash", ignoreCase = true) -> 1
+                    it.id.contains("pro", ignoreCase = true) -> 2
+                    else -> 3
+                }
+            }.thenBy { it.id }
+        )
         if (options.isEmpty()) throw IllegalStateException("No Gemini models supporting generateContent were returned")
         return options
     } finally {
@@ -518,17 +546,80 @@ private fun fetchAvailableGeminiModels(apiKey: String): List<GeminiModelOption> 
 
 private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String, modelId: String, imageMimeType: String? = null, imageBase64: String? = null): String {
     if (modelId == "auto") {
-        val candidates = listOf("gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash")
+        val available = fetchAvailableGeminiModels(apiKey)
+        val candidates = available
+            .filter { it.id.contains("flash", ignoreCase = true) }
+            .ifEmpty { available }
+            .sortedWith(
+                compareBy<GeminiModelOption> {
+                    when {
+                        it.id.contains("flash-lite", ignoreCase = true) -> 0
+                        it.id.contains("flash", ignoreCase = true) -> 1
+                        it.id.contains("pro", ignoreCase = true) -> 2
+                        else -> 3
+                    }
+                }.thenBy { it.id }
+            )
+            .map { it.id }
+            .distinct()
+            .take(5)
+        if (candidates.isEmpty()) {
+            throw IllegalStateException("Google returned no Gemini models that support generateContent. Tap Refresh models available to my API key and check the API key/project.")
+        }
         var lastError: Exception? = null
         for (candidate in candidates) {
             try {
-                return summarizeWithGemini(apiKey, topic, sourceText, candidate, imageMimeType, imageBase64)
+                return summarizeWithGeminiWithRetry(apiKey, topic, sourceText, candidate, imageMimeType, imageBase64)
             } catch (e: Exception) {
                 lastError = e
+                val message = e.message.orEmpty()
+                // Do not continue through models for invalid key, access, billing, or malformed requests.
+                if (message.contains("HTTP 400") || message.contains("HTTP 401") ||
+                    message.contains("HTTP 402") || message.contains("HTTP 403")) throw e
             }
         }
-        throw IllegalStateException("Auto mode tried the fast, balanced, and quality models but none succeeded. Last error: ${lastError?.message ?: "unknown error"}")
+        throw IllegalStateException("All available candidate models failed. ${lastError?.message ?: "unknown error"}. Try again shortly or select a model from the refreshed list.")
     }
+    return summarizeWithGeminiWithRetry(apiKey, topic, sourceText, modelId, imageMimeType, imageBase64)
+}
+
+private fun summarizeWithGeminiWithRetry(
+    apiKey: String,
+    topic: String,
+    sourceText: String,
+    modelId: String,
+    imageMimeType: String?,
+    imageBase64: String?
+): String {
+    var lastError: Exception? = null
+    for (attempt in 0..3) {
+        try {
+            return summarizeWithGeminiSingleAttempt(apiKey, topic, sourceText, modelId, imageMimeType, imageBase64)
+        } catch (e: Exception) {
+            lastError = e
+            val message = e.message.orEmpty()
+            val temporary = message.contains("HTTP 408") || message.contains("HTTP 429") ||
+                message.contains("HTTP 500") || message.contains("HTTP 502") ||
+                message.contains("HTTP 503") || message.contains("HTTP 504") ||
+                message.contains("timed out", ignoreCase = true) ||
+                message.contains("timeout", ignoreCase = true)
+            if (!temporary || attempt == 3) throw e
+            // Exponential backoff plus small jitter: 1s, 2s, 4s, then stop.
+            val delayMs = (1000L shl attempt) + (0L..500L).random()
+            Thread.sleep(delayMs)
+        }
+    }
+    throw IllegalStateException(lastError?.message ?: "Gemini request failed")
+}
+
+private fun summarizeWithGeminiSingleAttempt(
+    apiKey: String,
+    topic: String,
+    sourceText: String,
+    modelId: String,
+    imageMimeType: String?,
+    imageBase64: String?
+): String {
     val prompt = """
         You are an MBBS exam-note analyst. Analyze the topic and source before writing; identify what each fact belongs to, then place it under the correct heading.
         GOAL: produce only high-yield, topic-relevant exam points, not a long essay and not a copy of the source.
@@ -565,12 +656,12 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         setRequestProperty("Content-Type", "application/json; charset=UTF-8")
     }
     try {
-        val generationConfig = JSONObject().put("maxOutputTokens", 8192)
+        val generationConfig = JSONObject().put("maxOutputTokens", 4096)
         // thinkingLevel is only sent to Gemini 3.x models; older model families may reject it.
         if (modelId.startsWith("gemini-3.")) {
             generationConfig.put(
                 "thinkingConfig",
-                JSONObject().put("thinkingLevel", if (modelId.contains("lite")) "low" else "high")
+                JSONObject().put("thinkingLevel", "low")
             )
         }
         val requestParts = JSONArray().put(JSONObject().put("text", prompt))

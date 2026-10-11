@@ -1,33 +1,30 @@
-# MedVideoAI
+# MedNotes PDF
 
-Native Android medical storyboard and animation prototype built with Kotlin and Jetpack Compose.
+Native Android medical-notes formatter built with Kotlin and Jetpack Compose.
 
-## Current free-mode features
+## Features
 
-- Enter medical text in Tamil or English.
-- Split text into a storyboard of up to 12 scenes.
-- Rule-based topic matching for kidney, heart, lungs, ear, brain, microbes, and eye.
-- Preview simple animated educational illustrations for each scene.
-- Export a captioned template MP4 to Movies/MedVideoAI in 30-second, 1-minute, or 3-minute durations.
-- No paid video-generation API or API key is used by the current free-mode code.
+- Paste medical study text in English or Tamil.
+- Translate Tamil text to English using Google's free on-device ML Kit translation model (the model may need to download on first use).
+- Organize text into concise sections: Definition, Etiology/Causes, Classification, Mechanism of Action, Pathogenesis, Clinical Features, Investigations, Treatment, Complications, Prevention, and Important Points.
+- Preserve supplied English definition wording and organize mechanism/pathogenesis lines as flowcharts.
+- Preview notes before exporting.
+- Save a PDF using Android's system document picker.
+- No paid API key or video-generation service is used.
 
-## Important current limitations
+## Important limitations
 
-This version uses offline keyword/rule-based matching. It is **not** a general-purpose AI model and cannot reliably understand every medical description. The illustrations are simple shapes rather than detailed anatomical images. The current MP4 export does not yet include spoken narration, imported AI images, or generated AI video. Please verify medical details against trusted medical references.
-
-## Planned improvements
-
-1. Improve medical text analysis and the scene-by-scene storyboard.
-2. Add more topic-specific medical illustrations and motion.
-3. Add Android Text-to-Speech narration and synchronize captions.
-4. Allow users to import images they generated separately, including images created in ChatGPT.
-5. Evaluate optional AI services only after checking free-tier limits, privacy, and fallback behavior. Do not assume any external image/video generation API is free.
+- This is a rule-based formatter, not a medical AI model. It organizes the text you provide; it does not reliably invent missing medical facts or validate accuracy.
+- Tamil-to-English translation uses a downloadable on-device language model and requires internet access for the initial model download.
+- Flowcharts use the order of the supplied lines. For best results, label sections clearly in the source text.
+- Always check medical definitions and facts against your prescribed textbook before exam use.
 
 ## Build
 
 - Package: `com.example.medvideoai`
 - Use JDK 17 and Android SDK 35.
-- Open the repository in Android Studio or AndroidIDE, sync Gradle, then run `./gradlew clean assembleDebug`.
-- The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+- Open the repository in Android Studio or AndroidIDE and sync Gradle.
+- Build with `./gradlew clean assembleDebug`.
+- Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-No API key is required for free mode. Never commit API keys, `local.properties`, or signing keys to the repository.
+No API key is required. Never commit API keys, `local.properties`, or signing keys.

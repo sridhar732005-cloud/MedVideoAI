@@ -1,19 +1,8 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
-
-val localProps = Properties()
-val localPropsFile = rootProject.file("local.properties")
-if (localPropsFile.exists()) {
-    localPropsFile.inputStream().use { localProps.load(it) }
-}
-val higgsfieldApiKey = localProps.getProperty("HIGGSFIELD_API_KEY", "")
-    .replace("\\", "\\\\")
-    .replace("\"", "\\\"")
 
 android {
     namespace = "com.example.medvideoai"
@@ -25,13 +14,10 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
-
-        buildConfigField("String", "HIGGSFIELD_API_KEY", "\"$higgsfieldApiKey\"")
     }
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     compileOptions {

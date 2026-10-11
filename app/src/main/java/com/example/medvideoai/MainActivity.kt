@@ -94,7 +94,7 @@ private fun MedicalNotesScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall)
-            Text("Paste your English medical text. The app only uses your supplied text—no textbook lookup or translation. It organizes concise notes and turns mechanism/pathogenesis sequences into flowcharts where possible.")
+            Text("Paste English medical text. Offline extractive summarization selects important sentences from your text only—no translation, textbook lookup, or added medical facts. Definitions are kept verbatim; mechanism/pathogenesis are shown as flowcharts.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -111,11 +111,11 @@ private fun MedicalNotesScreen() {
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
                     busy = true
-                    status = "Formatting your notes..."
+                    status = "Selecting key sentences from your text..."
                     val input = sourceText.trim()
                     val title = topic.trim().ifBlank { inferTopic(input) }
                     notes = formatMedicalNotes(title, input)
-                    status = "Notes formatted from your text. Review the preview, then save the PDF."
+                    status = "Short notes created using only your text. Check the preview for context, then save the PDF."
                     busy = false
                 }
             ) { Text("Make Short Notes") }
@@ -145,7 +145,7 @@ private fun MedicalNotesScreen() {
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Uses only the English text you provide. No translation, textbook lookup, or outside medical facts are added. This version formats and condenses by headings and bullet points; it is not an AI medical summarizer, so review the notes to ensure the meaning is unchanged.",
+                "Offline extractive summarization: selected sentences are copied from your text, not rewritten or supplemented. The Definition section is kept verbatim. Sentence selection can omit context, so review every section before using it for exams.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -176,11 +176,11 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val buckets = linkedMapOf<String, MutableList<String>>()
     var current = "Important Points"
     buckets[current] = mutableListOf()
-    var definitionExact = false
 
-    raw.lines().map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
-        val clean = line.trimStart('#', '*', '-', '•', ' ', '\t')
+    raw.lines().map { it.trim() }.filter { it.isNotBlank() }.forEach { originalLine ->
+        val clean = originalLine.trimStart('#', '*', '-', '•', ' ', '\t')
             .replace(Regex("^\\d+[.)]\\s*"), "").trim()
+        if (clean.isBlank()) return@forEach
         val lower = clean.lowercase(Locale.ROOT)
         val matched = known.firstNotNullOfOrNull { (sectionName, aliases) ->
             aliases.firstNotNullOfOrNull { alias ->
@@ -195,35 +195,95 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
         if (matched != null) {
             current = matched.first
             buckets.getOrPut(current) { mutableListOf() }
-            val remainder = matched.third
-            if (remainder.isNotBlank()) {
-                buckets.getOrPut(current) { mutableListOf() }.add(remainder)
-                if (current == "Definition") definitionExact = true
-            }
-        } else if (clean.isNotBlank()) {
+            if (matched.third.isNotBlank()) buckets.getValue(current).add(matched.third)
+        } else {
             buckets.getOrPut(current) { mutableListOf() }.add(clean)
-            if (current == "Definition") definitionExact = true
         }
     }
 
-    val sections = buckets.mapNotNull { (name, lines) ->
-        val useful = lines.map { it.trim() }.filter { it.isNotBlank() }
-        if (useful.isEmpty()) null else {
-            val flow = name.equals("Mechanism of Action", true) || name.equals("Pathogenesis", true)
-            NoteSection(name, if (flow) normalizeFlowchart(useful) else useful, flow)
+    val sections = buckets.mapNotNull { (name, rawLines) ->
+        if (rawLines.isEmpty()) return@mapNotNull null
+
+        // Keep every supplied definition line exactly as written after removing the heading/bullet marker.
+        // All other sections use extractive sentence selection: no new words or facts are generated.
+        val isDefinition = name == "Definition"
+        val flow = name == "Mechanism of Action" || name == "Pathogenesis"
+        val units = if (isDefinition) {
+            rawLines
+        } else {
+            rawLines.flatMap { line ->
+                val arrowParts = line.split(Regex("\\s*(?:→|->|⟶)\\s*")).filter { it.isNotBlank() }
+                if (arrowParts.size > 1) arrowParts
+                else splitSentences(line)
+            }
         }
+        val cleanedUnits = units.map { it.trim().trimStart('•', '-', '*').trim() }.filter { it.isNotBlank() }
+        val selected = if (isDefinition || flow) cleanedUnits else selectKeySentences(name, cleanedUnits)
+        val finalLines = if (flow) normalizeFlowchart(selected) else selected
+        if (finalLines.isEmpty()) null else NoteSection(name, finalLines, flow)
     }
+
     return MedicalNotes(topic.ifBlank { "Medical Notes" }, sections.ifEmpty {
         listOf(NoteSection("Important Points", listOf("No text detected.")))
     })
 }
 
-private fun normalizeFlowchart(lines: List<String>): List<String> {
-    if (lines.size == 1 && (lines[0].contains("→") || lines[0].contains("->"))) {
-        return lines[0].split(Regex("\\s*(?:→|->)\\s*")).filter { it.isNotBlank() }
-    }
-    return lines.map { it.removeSuffix("↓").trim() }
+private fun splitSentences(text: String): List<String> {
+    val cleaned = text.trim()
+    if (cleaned.isBlank()) return emptyList()
+    // Split prose into sentence-sized units while retaining the original sentence wording and punctuation.
+    val pieces = cleaned.split(Regex("(?<=[.!?])\\s+(?=[A-Z0-9(])"))
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    return if (pieces.isEmpty()) listOf(cleaned) else pieces
 }
+
+private fun selectKeySentences(section: String, sentences: List<String>): List<String> {
+    if (sentences.size <= 4) return sentences
+    val wordsBySentence = sentences.map { sentence ->
+        Regex("[A-Za-z][A-Za-z0-9'-]{2,}")
+            .findAll(sentence.lowercase(Locale.ROOT))
+            .map { it.value }
+            .filter { it !in summarizerStopWords }
+            .toList()
+    }
+    val frequencies = mutableMapOf<String, Int>()
+    wordsBySentence.flatten().forEach { word -> frequencies[word] = (frequencies[word] ?: 0) + 1 }
+    val sectionBoosts = when (section) {
+        "Etiology / Causes" -> setOf("cause", "causes", "due", "because", "risk", "factor", "associated", "secondary")
+        "Classification" -> setOf("type", "types", "class", "classified", "stage", "stages")
+        "Clinical Features" -> setOf("symptoms", "signs", "presents", "characterized", "features", "pain", "fever")
+        "Investigations" -> setOf("test", "tests", "diagnosis", "shows", "reveals", "levels", "criteria")
+        "Treatment" -> setOf("treatment", "management", "administer", "given", "therapy", "avoid", "first-line")
+        "Complications" -> setOf("complication", "complications", "may", "leads", "result", "results")
+        else -> emptySet()
+    }
+    val scored = sentences.mapIndexed { index, sentence ->
+        val words = wordsBySentence[index]
+        val termScore = if (words.isEmpty()) 0.0 else words.sumOf { (frequencies[it] ?: 0).toDouble() } / words.size
+        val sectionScore = if (words.any { it in sectionBoosts }) 1.2 else 0.0
+        val safetyScore = if (Regex("\\b(no|not|never|without|only|except|contraindicated|increased|decreased|acute|chronic|severe|normal|abnormal)\\b", RegexOption.IGNORE_CASE).containsMatchIn(sentence)) 1.0 else 0.0
+        val positionScore = if (index == 0) 1.0 else 0.0
+        val lengthPenalty = if (sentence.length > 260) 0.8 else 0.0
+        index to (termScore + sectionScore + safetyScore + positionScore - lengthPenalty)
+    }
+    val targetCount = maxOf(4, kotlin.math.ceil(sentences.size * 0.65).toInt()).coerceAtMost(sentences.size)
+    val selectedIndices = scored.sortedByDescending { it.second }.take(targetCount).map { it.first }.toSet()
+    return sentences.filterIndexed { index, _ -> index in selectedIndices }
+}
+
+private val summarizerStopWords = setOf(
+    "the", "and", "for", "with", "from", "that", "this", "these", "those", "are", "was", "were",
+    "been", "being", "have", "has", "had", "can", "could", "may", "might", "will", "would", "should",
+    "into", "onto", "over", "under", "between", "among", "through", "during", "after", "before", "when",
+    "where", "which", "while", "who", "whom", "whose", "what", "how", "why", "than", "then", "also",
+    "such", "its", "their", "there", "they", "them", "his", "her", "our", "you", "your", "all", "any",
+    "not", "but", "per", "each", "other", "more", "most", "some", "many", "much", "very", "often",
+    "usually", "generally", "about", "because", "due", "used", "use", "using", "following", "including"
+)
+
+private fun normalizeFlowchart(lines: List<String>): List<String> =
+    lines.map { it.removeSuffix("↓").trim() }.filter { it.isNotBlank() }
 
 private fun safeFileName(name: String): String =
     name.replace(Regex("[^A-Za-z0-9_-]+"), "_").trim('_').ifBlank { "Medical_Notes" }.take(70)

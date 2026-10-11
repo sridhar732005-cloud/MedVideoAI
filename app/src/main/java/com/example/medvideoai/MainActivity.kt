@@ -228,8 +228,17 @@ private suspend fun generateTestVideo(topic: String, language: String, style: St
             val stream = if (code in 200..299) submitConnection.inputStream else submitConnection.errorStream
             submitText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {
-                val message = runCatching { JSONObject(submitText).optString("message") }.getOrNull().orEmpty()
-                throw IllegalStateException("Higgsfield HTTP $code${if (message.isNotBlank()) ": $message" else ""}")
+                val message = runCatching {
+                    val errorJson = JSONObject(submitText)
+                    listOf("message", "detail", "error_description", "error")
+                        .map { key -> errorJson.optString(key).takeIf { it.isNotBlank() && it != "null" } }
+                        .firstOrNull { it != null }
+                        .orEmpty()
+                }.getOrNull().orEmpty()
+                val diagnostic = if (message.isNotBlank()) message else submitText.take(400)
+                throw IllegalStateException(
+                    "Higgsfield HTTP $code${if (diagnostic.isNotBlank()) ": $diagnostic" else ""}"
+                )
             }
         } finally {
             submitConnection.disconnect()

@@ -601,19 +601,23 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
     startPage()
     notes.sections.forEachIndexed { sectionIndex, section ->
         val sectionColor = sectionBackgroundColors[sectionIndex % sectionBackgroundColors.size]
-        ensureSpace(28f)
+        ensureSpace(32f)
         y += 8f
         sectionBgPaint.color = sectionColor
-        canvas!!.drawRoundRect(margin - 5f, y - 14f, pageWidth - margin + 5f, y + 6f, 5f, 5f, sectionBgPaint)
-        canvas!!.drawText(section.title, margin, y, sectionTextPaint)
-        y += 20f
+        canvas!!.drawRoundRect(margin - 5f, y - 14f, pageWidth - margin + 5f, y + 7f, 5f, 5f, sectionBgPaint)
+        val headerPaint = if (section.important) titlePaint else sectionTextPaint
+        canvas!!.drawText(section.title, margin, y, headerPaint)
+        y += if (section.important) 24f else 20f
         section.lines.forEachIndexed { index, line ->
             val text = when {
+                section.mindMap && index == 0 -> "●  $line"
+                section.mindMap -> "   ├─  $line"
                 section.flowchart && index < section.lines.lastIndex -> "$line  ↓"
                 section.flowchart -> line
+                section.important -> "★  $line"
                 else -> "•  $line"
             }
-            drawWrapped(text, bodyPaint, if (section.flowchart) 12f else 0f, sectionColor)
+            drawWrapped(text, if (section.important) headingPaint else bodyPaint, if (section.flowchart || section.mindMap) 12f else 0f, sectionColor)
         }
     }
     finishPage()

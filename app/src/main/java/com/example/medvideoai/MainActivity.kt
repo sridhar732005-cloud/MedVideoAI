@@ -1,5 +1,7 @@
 package com.example.medvideoai
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +16,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -28,8 +31,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,6 +65,10 @@ fun MedicalVideoScreen() {
     var duration by remember { mutableStateOf("1 minute") }
     var style by remember { mutableStateOf("Medical animation") }
     var status by remember { mutableStateOf("") }
+    var videoUrl by remember { mutableStateOf<String?>(null) }
+    var isGenerating by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     val topics = listOf(
         "COPD", "Asthma", "Meniere disease",
@@ -59,24 +76,18 @@ fun MedicalVideoScreen() {
         "ENT", "Ophthalmology", "Forensic medicine"
     )
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("MedVideo AI") }) }
-    ) { innerPadding ->
+    Scaffold(topBar = { TopAppBar(title = { Text("MedVideo AI") }) }) { innerPadding ->
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
-                .padding(20.dp)
+            modifier = Modifier.fillMaxSize().padding(innerPadding).padding(20.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text("AI Medical Video Creator",
-                style = MaterialTheme.typography.headlineSmall)
-            Text("Create educational video plans from medical topics.")
+            Text("AI Medical Video Creator", style = MaterialTheme.typography.headlineSmall)
+            Text("Create a short educational video from a medical topic.")
 
             OutlinedTextField(
                 value = topic,
-                onValueChange = { topic = it; status = "" },
+                onValueChange = { topic = it; status = ""; videoUrl = null },
                 label = { Text("Medical topic") },
                 placeholder = { Text("e.g. COPD or Meniere disease") },
                 modifier = Modifier.fillMaxWidth(),
@@ -91,11 +102,9 @@ fun MedicalVideoScreen() {
                 ) {
                     group.forEach { item ->
                         OutlinedButton(
-                            onClick = { topic = item; status = "" },
+                            onClick = { topic = item; status = ""; videoUrl = null },
                             modifier = Modifier.weight(1f)
-                        ) {
-                            Text(item, style = MaterialTheme.typography.labelSmall)
-                        }
+                        ) { Text(item, style = MaterialTheme.typography.labelSmall) }
                     }
                     repeat(3 - group.size) { Spacer(Modifier.weight(1f)) }
                 }
@@ -112,7 +121,7 @@ fun MedicalVideoScreen() {
                 }
             }
 
-            Text("Duration", style = MaterialTheme.typography.titleMedium)
+            Text("Preferred final duration", style = MaterialTheme.typography.titleMedium)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("30 seconds", "1 minute", "3 minutes").forEach { option ->
                     FilterChip(
@@ -133,20 +142,42 @@ fun MedicalVideoScreen() {
             }
 
             Button(
+                enabled = !isGenerating,
                 onClick = {
-                    status = if (topic.isBlank()) {
-                        "Please enter a medical topic."
+                    if (topic.isBlank()) {
+                        status = "Please enter a medical topic."
+                    } else if (BuildConfig.HIGGSFIELD_API_KEY.isBlank()) {
+                        status = "API key not found. Add HIGGSFIELD_API_KEY to the project-root local.properties file, then rebuild."
                     } else {
-                        "Video request prepared\n\n" +
-                            "Topic: $topic\nLanguage: $language\n" +
-                            "Duration: $duration\nVisual style: $style\n\n" +
-                            "AI video generation is not connected yet. " +
-                            "Connect a secure backend and video provider to generate MP4."
+                        isGenerating = true
+                        videoUrl = null
+                        status = "Sending a 5-second test video request. This may use paid Higgsfield API credits."
+                        scope.launch {
+                            try {
+                                videoUrl = generateTestVideo(topic.trim(), language, style)
+                                status = "Video generated. Tap Open video to view it."
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Exception) {
+                                status = "Generation failed: ${e.message ?: "Unknown error"}. Check API key, API balance, and model access."
+                            } finally {
+                                isGenerating = false
+                            }
+                        }
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("Prepare Video")
+            ) { Text(if (isGenerating) "Generating..." else "Generate Test Video (5 sec)") }
+
+            if (isGenerating) CircularProgressIndicator()
+
+            videoUrl?.let { link ->
+                Button(
+                    onClick = {
+                        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link)))
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Open video") }
             }
 
             if (status.isNotBlank()) {
@@ -156,9 +187,94 @@ fun MedicalVideoScreen() {
             }
 
             Text(
-                "Educational use only. Verify medical facts against trusted clinical references.",
+                "Prototype only: the API key is packaged in the APK and can be extracted. Do not share this APK or publish it to Play Store. This test generates a 5-second clip; the selected duration and style are used as prompt guidance, not as guaranteed provider settings. Check medical facts against trusted clinical references.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
     }
 }
+
+private suspend fun generateTestVideo(topic: String, language: String, style: String): String =
+    withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.HIGGSFIELD_API_KEY.trim()
+        val prompt = "Create a medically educational video about: $topic. " +
+            "Language preference: $language. Visual style: $style. " +
+            "For medical student learning, use clear visuals and avoid unsupported medical claims."
+
+        val requestBody = JSONObject()
+            .put("prompt", prompt)
+            .put("duration", 5)
+            .put("resolution", "720p")
+            .put("aspect_ratio", "16:9")
+            .put("generate_audio", false)
+
+        val submitConnection = (URL("https://api.higgsfield.ai/bytedance/seedance-2.0/text-to-video")
+            .openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 30000
+            readTimeout = 30000
+            doOutput = true
+            setRequestProperty("Authorization", "Key $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+            setRequestProperty("Accept", "application/json")
+        }
+
+        val submitText: String
+        try {
+            submitConnection.outputStream.use {
+                it.write(requestBody.toString().toByteArray(Charsets.UTF_8))
+            }
+            val code = submitConnection.responseCode
+            val stream = if (code in 200..299) submitConnection.inputStream else submitConnection.errorStream
+            submitText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            if (code !in 200..299) {
+                val message = runCatching { JSONObject(submitText).optString("message") }.getOrNull().orEmpty()
+                throw IllegalStateException("Higgsfield HTTP $code${if (message.isNotBlank()) ": $message" else ""}")
+            }
+        } finally {
+            submitConnection.disconnect()
+        }
+
+        val submitted = JSONObject(submitText)
+        val requestId = submitted.optString("request_id")
+        if (requestId.isBlank()) {
+            val directUrl = submitted.optJSONObject("video")?.optString("url").orEmpty()
+            if (directUrl.startsWith("https://")) return@withContext directUrl
+            throw IllegalStateException("API response did not include request_id.")
+        }
+
+        val statusUrl = submitted.optString("status_url").ifBlank {
+            "https://api.higgsfield.ai/requests/$requestId/status"
+        }
+        repeat(60) {
+            delay(5000)
+            val pollConnection = (URL(statusUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 20000
+                readTimeout = 20000
+                setRequestProperty("Authorization", "Key $apiKey")
+                setRequestProperty("Accept", "application/json")
+            }
+            val pollText: String
+            try {
+                val code = pollConnection.responseCode
+                val stream = if (code in 200..299) pollConnection.inputStream else pollConnection.errorStream
+                pollText = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+                if (code !in 200..299) throw IllegalStateException("Status check HTTP $code")
+            } finally {
+                pollConnection.disconnect()
+            }
+
+            val json = JSONObject(pollText)
+            when (json.optString("status").lowercase()) {
+                "completed" -> {
+                    val url = json.optJSONObject("video")?.optString("url").orEmpty()
+                    if (url.startsWith("https://")) return@withContext url
+                    throw IllegalStateException("Generation completed but no video URL was returned.")
+                }
+                "failed", "nsfw", "canceled", "cancelled" ->
+                    throw IllegalStateException("Higgsfield status: ${json.optString("status")}")
+            }
+        }
+        throw IllegalStateException("Timed out waiting for video. Check the Higgsfield dashboard for request status.")
+    }

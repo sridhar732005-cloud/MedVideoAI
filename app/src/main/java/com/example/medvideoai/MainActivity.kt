@@ -675,7 +675,7 @@ private fun summarizeWithGeminiSingleAttempt(
     val prompt = """
         You are an MBBS exam-note analyst. Analyze the topic and source before writing; identify what each fact belongs to, then place it under the correct heading.
         GOAL: produce only high-yield, topic-relevant exam points, not a long essay and not a copy of the source.
-        LENGTH: make an ultra-concise high-yield revision sheet. For the whole topic, aim for 1–3 short bullets per relevant heading, and normally no more than 6–10 bullets total unless the supplied source clearly requires more. Do not output six sentences just because they exist in the source. Keep only the single most important sentence/fact for each heading when possible; combine related facts into one compact bullet. Avoid repeated facts, filler, introductions, conclusions, and unrelated information. Preserve essential definitions, diagnostic criteria, staging/classification, key mechanisms, source-mentioned management, important contraindications, and exam differentiators. Never omit a critical fact merely to make notes shorter.
+        LENGTH AND EXPLANATION: create concise but understandable MBBS revision notes, not an essay and not cryptic fragments. Usually give 2–4 relevant points per heading and about 8–14 meaningful points overall, depending on topic complexity. A point may use one or two short sentences when explanation is needed. Briefly explain how/why important signs, test findings, mechanisms and treatment effects occur when the source supports it. Do not repeat facts or add filler. Preserve essential definitions, diagnostic criteria, staging/classification, key mechanisms, source-mentioned management, important contraindications and exam differentiators. Do not make notes artificially short at the cost of understanding.
         SOURCE ACCURACY: treat provided text/image as the primary source. Preserve a supplied definition verbatim. Do not invent doses, lab values, treatment recommendations, or unreadable image details. If clarification is essential, label it "Brief clarification" and keep it to one line.
         INPUT ANALYSIS: carefully read all supplied text and image content. For images, interpret legible labels, tables, arrows, and diagram relationships; do not guess unclear material. Combine text+image without duplication.
         OUTPUT RULES: plain text only, compact bullets, no long paragraphs. Use only relevant headings from this set:
@@ -871,26 +871,35 @@ private fun inferTopic(text: String): String {
     return first.take(70).ifBlank { "Medical Notes" }.removeSuffix(":")
 }
 
+private fun flowSectionFor(name: String): Boolean =
+    name == "Mechanism of Action" || name == "Pathogenesis"
+
 private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val known = listOf(
         "Definition" to listOf("definition", "meaning"),
         "Etiology / Causes" to listOf("etiology / causes", "etiology", "causes", "cause", "risk factors"),
         "Classification" to listOf("classification", "types", "type"),
-        "Mechanism of Action" to listOf("mechanism of action", "mechanism", "pathophysiology"),
-        "Pathogenesis" to listOf("pathogenesis"),
-        "Clinical Features" to listOf("clinical features", "symptoms", "signs", "presentation"),
-        "Investigations" to listOf("investigations", "diagnosis", "tests"),
-        "Treatment" to listOf("treatment", "management", "therapy"),
+        "Pathogenesis" to listOf("pathophysiology / pathogenesis", "pathophysiology", "pathogenesis", "pathophysiology of disease"),
+        "Mechanism of Action" to listOf("mechanism of action", "mechanism"),
+        "Clinical Features" to listOf("clinical features", "clinical presentation", "symptoms", "signs", "presentation"),
+        "Investigations" to listOf("investigations", "diagnosis", "diagnostic tests", "tests"),
+        "Treatment" to listOf("treatment / management", "treatment", "management", "therapy"),
         "Complications" to listOf("complications", "sequelae"),
-        "Prevention" to listOf("prevention", "prophylaxis")
+        "Prevention" to listOf("prevention", "prophylaxis"),
+        "Important Points" to listOf("important points", "high-yield points", "key points", "important", "exam points")
     )
     val buckets = linkedMapOf<String, MutableList<String>>()
     var current = "Important Points"
     buckets[current] = mutableListOf()
 
     raw.lines().map { it.trim() }.filter { it.isNotBlank() }.forEach { originalLine ->
-        val clean = originalLine.trimStart('#', '*', '-', '•', ' ', '\t')
-            .replace(Regex("^\\d+[.)]\\s*"), "").trim()
+        val clean = originalLine.trim()
+            .replace(Regex("^\\s*#{1,6}\\s*"), "")
+            .replace(Regex("^\\s*(?:[-•]\\s+|\\d+[.)]\\s*)"), "")
+            .replace("**", "")
+            .replace("__", "")
+            .replace("*", "")
+            .trim()
         if (clean.isBlank()) return@forEach
         val lower = clean.lowercase(Locale.ROOT)
         val matched = known.firstNotNullOfOrNull { (sectionName, aliases) ->
@@ -899,6 +908,7 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
                     lower == alias || lower == "$alias:" -> Triple(sectionName, alias, "")
                     lower.startsWith("$alias:") -> Triple(sectionName, alias, clean.substringAfter(':').trim())
                     lower.startsWith("$alias -") -> Triple(sectionName, alias, clean.substringAfter('-').trim())
+                    lower.startsWith("$alias —") -> Triple(sectionName, alias, clean.substringAfter('—').trim())
                     else -> null
                 }
             }
@@ -918,12 +928,11 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
         val isDefinition = name == "Definition"
         val isMindMap = name == "Etiology / Causes" || name == "Classification" ||
             name == "Mechanism of Action" || name == "Pathogenesis"
-        val isImportant = name == "Important Points" || name == "High-yield Points" ||
-            name == "Key Points" || name == "Important"
-        val flow = name == "Mechanism of Action" || name == "Pathogenesis"
+        val isImportant = name == "Important Points"
+        val flow = flowSectionFor(name)
         val units = if (isDefinition) rawLines else rawLines.flatMap { line ->
             val arrowParts = line.split(Regex("\\s*(?:→|->|⟶)\\s*")).filter { it.isNotBlank() }
-            if (arrowParts.size > 1) arrowParts else splitSentences(line)
+            if (flow && arrowParts.size > 1) arrowParts else splitSentences(line)
         }
         val cleanedUnits = units.map { it.trim().trimStart('•', '-', '*').trim() }.filter { it.isNotBlank() }
         val selected = if (isDefinition || isMindMap || isImportant || name == "Treatment" || name == "Prevention") cleanedUnits

@@ -417,29 +417,81 @@ private fun MedicalNotesScreen() {
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Text(generated.topic, style = MaterialTheme.typography.titleLarge)
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(generated.topic, style = MaterialTheme.typography.titleLarge, color = Color(0xFF23416E))
                         generated.sections.forEachIndexed { sectionIndex, section ->
                             val sectionColors = listOf(
                                 Color(0xFFE8F1FF), Color(0xFFE6F7EE), Color(0xFFFFF2D9),
                                 Color(0xFFF3E8FF), Color(0xFFFFE8EC), Color(0xFFE4F7F8)
                             )
                             val sectionColor = sectionColors[sectionIndex % sectionColors.size]
+                            val importantBackground = Color(0xFFFFD580)
+                            val headingColor = if (section.important) Color(0xFF6D3B00) else Color(0xFF17365D)
                             Column(
-                                Modifier.fillMaxWidth().background(sectionColor, RoundedCornerShape(10.dp)).padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                Modifier.fillMaxWidth()
+                                    .background(if (section.important) importantBackground else sectionColor, RoundedCornerShape(12.dp))
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Text(section.title, style = if (section.important) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium, color = Color(0xFF17365D))
-                                if (section.mindMap && section.lines.isNotEmpty()) {
-                                    Text("● ${section.lines.first()}", style = MaterialTheme.typography.titleMedium, color = Color(0xFF202124))
-                                    section.lines.drop(1).forEach { branch -> Text("   ├─ $branch", color = Color(0xFF202124)) }
-                                } else {
+                                Text(
+                                    if (section.important) "★  ${section.title}" else section.title,
+                                    style = if (section.important) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
+                                    color = headingColor
+                                )
+                                if (section.flowchart) {
                                     section.lines.forEachIndexed { index, line ->
-                                        Text(
-                                            if (section.flowchart && index < section.lines.lastIndex) "$line  ↓" else if (section.flowchart) line else "• $line",
-                                            style = if (section.important) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
-                                            color = Color(0xFF202124)
-                                        )
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(9.dp),
+                                            colors = androidx.compose.material3.CardDefaults.cardColors(
+                                                containerColor = sectionColors[(index + sectionIndex) % sectionColors.size]
+                                            )
+                                        ) {
+                                            Text(
+                                                line,
+                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                color = Color(0xFF203047)
+                                            )
+                                        }
+                                        if (index < section.lines.lastIndex) {
+                                            Box(Modifier.fillMaxWidth(), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                                Text("↓", style = MaterialTheme.typography.headlineSmall, color = Color(0xFF345282))
+                                            }
+                                        }
+                                    }
+                                } else if (section.mindMap && section.lines.isNotEmpty()) {
+                                    Text(
+                                        "●  ${section.lines.first()}",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = headingColor
+                                    )
+                                    section.lines.drop(1).forEachIndexed { branchIndex, branch ->
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("├─", color = Color(0xFF345282))
+                                            Text(branch, modifier = Modifier.weight(1f), color = Color(0xFF202124))
+                                        }
+                                    }
+                                } else {
+                                    section.lines.forEach { line ->
+                                        if (section.important) {
+                                            Card(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = androidx.compose.material3.CardDefaults.cardColors(
+                                                    containerColor = Color(0xFFFFE3A3)
+                                                )
+                                            ) {
+                                                Text(
+                                                    "★  $line",
+                                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                                    style = MaterialTheme.typography.titleSmall,
+                                                    color = Color(0xFF5B3200)
+                                                )
+                                            }
+                                        } else {
+                                            Text("• $line", color = Color(0xFF202124), style = MaterialTheme.typography.bodyMedium)
+                                        }
                                     }
                                 }
                             }

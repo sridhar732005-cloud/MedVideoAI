@@ -426,49 +426,111 @@ private fun drawMedicalFrame(
     paint.typeface = android.graphics.Typeface.create("sans-serif", android.graphics.Typeface.BOLD)
     canvas.drawText("MedVideo AI", 32f, 58f, paint)
 
+    val cleanText = topic.replace("\\n", " ").trim()
+    val sentences = cleanText.split(Regex("(?<=[.!?])\\s+|\\n+"))
+        .map { it.trim() }.filter { it.isNotBlank() }
+    val sceneCount = sentences.size.coerceAtLeast(1)
+    val sceneIndex = ((elapsedSeconds.toLong() * sceneCount) / totalSeconds.coerceAtLeast(1))
+        .toInt().coerceIn(0, sceneCount - 1)
+    val sceneText = sentences.getOrElse(sceneIndex) { cleanText }
+    val lower = sceneText.lowercase()
+    val allLower = cleanText.lowercase()
+
     paint.color = android.graphics.Color.rgb(35, 35, 45)
-    paint.textSize = 22f
-    val topicWords = topic.split(" ")
-    var topicLine = ""
-    var y = 125f
-    for (word in topicWords) {
-        val candidate = if (topicLine.isBlank()) word else "$topicLine $word"
+    paint.textSize = 17f
+    val words = sceneText.split(Regex("\\s+"))
+    var line = ""
+    var y = 118f
+    for (word in words) {
+        val candidate = if (line.isBlank()) word else "$line $word"
         if (paint.measureText(candidate) > width - 44f) {
-            canvas.drawText(topicLine, 22f, y, paint)
-            y += 28f
-            topicLine = word
-        } else topicLine = candidate
+            canvas.drawText(line, 22f, y, paint)
+            y += 23f
+            line = word
+        } else line = candidate
     }
-    if (topicLine.isNotBlank()) canvas.drawText(topicLine, 22f, y, paint)
+    if (line.isNotBlank()) canvas.drawText(line, 22f, y, paint)
 
     val cx = width / 2f
     val cy = height * 0.49f
-    val pulse = 1f + 0.06f * kotlin.math.sin(elapsedSeconds * 1.5).toFloat()
-    paint.color = android.graphics.Color.rgb(109, 76, 175)
-    paint.strokeWidth = 10f
-    canvas.drawLine(cx, cy - 80f, cx, cy + 40f, paint)
-    canvas.drawLine(cx, cy - 10f, cx - 45f, cy + 15f, paint)
-    canvas.drawLine(cx, cy - 10f, cx + 45f, cy + 15f, paint)
-    paint.color = android.graphics.Color.rgb(128, 203, 196)
-    canvas.drawOval(RectF(cx - 88f * pulse, cy - 65f * pulse, cx - 12f, cy + 100f * pulse), paint)
-    canvas.drawOval(RectF(cx + 12f, cy - 65f * pulse, cx + 88f * pulse, cy + 100f * pulse), paint)
+    val pulse = 1f + 0.08f * kotlin.math.sin(elapsedSeconds * 1.5).toFloat()
+    val isHeart = listOf("heart", "cardiac", "cardio", "இதயம்", "இருதயம்").any { lower.contains(it) || allLower.contains(it) }
+    val isEar = listOf("ear", "meniere", "vestibular", "cochlea", "காது", "மெனியர்").any { lower.contains(it) || allLower.contains(it) }
+    val isMicrobe = listOf("bacteria", "virus", "infection", "microbe", "பாக்டீரியா", "வைரஸ்", "தொற்று").any { lower.contains(it) || allLower.contains(it) }
+    val isAirway = listOf("asthma", "copd", "airway", "bronch", "lung", "respirat", "mucus", "நுரையீரல்", "ஆஸ்துமா", "மூச்சு", "சளி").any { lower.contains(it) || allLower.contains(it) }
 
-    paint.color = android.graphics.Color.rgb(255, 183, 77)
-    canvas.drawCircle(cx, cy - 88f, 13f + 4f * pulse, paint)
+    if (isHeart) {
+        paint.color = android.graphics.Color.rgb(220, 70, 90)
+        val r = 55f * pulse
+        val path = android.graphics.Path().apply {
+            moveTo(cx, cy + r * 0.95f)
+            cubicTo(cx - r * 1.7f, cy - r * 0.1f, cx - r * 0.85f, cy - r * 1.2f, cx, cy - r * 0.45f)
+            cubicTo(cx + r * 0.85f, cy - r * 1.2f, cx + r * 1.7f, cy - r * 0.1f, cx, cy + r * 0.95f)
+        }
+        canvas.drawPath(path, paint)
+        paint.color = android.graphics.Color.rgb(120, 40, 60)
+        paint.strokeWidth = 8f
+        canvas.drawLine(cx - 75f, cy + 65f, cx - 35f, cy + 65f, paint)
+        canvas.drawLine(cx - 35f, cy + 65f, cx - 18f, cy + 35f, paint)
+        canvas.drawLine(cx - 18f, cy + 35f, cx + 2f, cy + 84f, paint)
+        canvas.drawLine(cx + 2f, cy + 84f, cx + 25f, cy + 55f, paint)
+        canvas.drawLine(cx + 25f, cy + 55f, cx + 75f, cy + 55f, paint)
+    } else if (isEar) {
+        paint.color = android.graphics.Color.rgb(255, 183, 140)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 14f
+        canvas.drawOval(RectF(cx - 62f, cy - 85f, cx + 50f, cy + 88f), paint)
+        canvas.drawOval(RectF(cx - 32f, cy - 45f, cx + 23f, cy + 50f), paint)
+        canvas.drawArc(RectF(cx - 12f, cy - 20f, cx + 65f, cy + 70f), 100f, 220f, false, paint)
+        paint.style = Paint.Style.FILL
+        paint.color = android.graphics.Color.rgb(109, 76, 175)
+        canvas.drawCircle(cx + 16f, cy + 17f, 12f + 4f * pulse, paint)
+    } else if (isMicrobe) {
+        for (i in 0..7) {
+            val angle = i * (Math.PI / 4.0) + elapsedSeconds * 0.25
+            val x = cx + kotlin.math.cos(angle).toFloat() * (35f + (i % 3) * 18f)
+            val yy = cy + kotlin.math.sin(angle).toFloat() * (40f + (i % 2) * 20f)
+            paint.color = if (i % 2 == 0) android.graphics.Color.rgb(239, 83, 80) else android.graphics.Color.rgb(102, 187, 106)
+            canvas.drawCircle(x, yy, 13f * pulse, paint)
+            paint.color = android.graphics.Color.rgb(70, 70, 70)
+            paint.strokeWidth = 2f
+            canvas.drawLine(x - 17f, yy, x - 11f, yy, paint)
+            canvas.drawLine(x + 11f, yy, x + 17f, yy, paint)
+        }
+    } else {
+        paint.color = android.graphics.Color.rgb(109, 76, 175)
+        paint.strokeWidth = 10f
+        canvas.drawLine(cx, cy - 80f, cx, cy + 40f, paint)
+        canvas.drawLine(cx, cy - 10f, cx - 45f, cy + 15f, paint)
+        canvas.drawLine(cx, cy - 10f, cx + 45f, cy + 15f, paint)
+        paint.color = android.graphics.Color.rgb(128, 203, 196)
+        canvas.drawOval(RectF(cx - 88f * pulse, cy - 65f * pulse, cx - 12f, cy + 100f * pulse), paint)
+        canvas.drawOval(RectF(cx + 12f, cy - 65f * pulse, cx + 88f * pulse, cy + 100f * pulse), paint)
+        if (listOf("asthma", "copd", "airway", "bronch", "mucus", "சளி", "ஆஸ்துமா").any { lower.contains(it) || allLower.contains(it) }) {
+            paint.color = android.graphics.Color.rgb(239, 83, 80)
+            paint.strokeWidth = 7f
+            canvas.drawLine(cx - 42f, cy + 4f, cx - 15f, cy + 4f, paint)
+            canvas.drawLine(cx + 15f, cy + 4f, cx + 42f, cy + 4f, paint)
+            paint.color = android.graphics.Color.rgb(255, 183, 77)
+            canvas.drawCircle(cx - 26f, cy + 4f, 8f, paint)
+            canvas.drawCircle(cx + 26f, cy + 4f, 8f, paint)
+        }
+    }
+
     paint.color = android.graphics.Color.rgb(70, 60, 90)
     paint.textSize = 15f
     val caption = when (language) {
-        "Tamil" -> "மருத்துவக் கற்றல் காட்சி"
+        "Tamil" -> "தமிழ் மருத்துவக் காட்சி"
         "English" -> "Medical learning visual"
-        else -> "மருத்துவக் கற்றல் / Medical learning"
+        else -> "தமிழ் / English medical visual"
     }
     canvas.drawText(caption, 20f, height - 86f, paint)
     paint.color = android.graphics.Color.rgb(110, 95, 130)
     paint.textSize = 13f
-    canvas.drawText("Educational template - verify clinical facts", 20f, height - 58f, paint)
+    canvas.drawText("Scene ${sceneIndex + 1}/$sceneCount • educational template", 20f, height - 58f, paint)
     canvas.drawRoundRect(RectF(20f, height - 38f, width - 20f, height - 27f), 6f, 6f, paint)
     paint.color = android.graphics.Color.rgb(109, 76, 175)
-    val progress = elapsedSeconds.toFloat() / totalSeconds.coerceAtLeast(1)
+    val progress = (elapsedSeconds.toFloat() / totalSeconds.coerceAtLeast(1)).coerceIn(0f, 1f)
     canvas.drawRoundRect(RectF(20f, height - 38f, 20f + (width - 40f) * progress, height - 27f), 6f, 6f, paint)
     return bitmap
 }

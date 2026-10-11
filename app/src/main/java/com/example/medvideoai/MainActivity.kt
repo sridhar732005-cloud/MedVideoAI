@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
@@ -121,7 +125,7 @@ private fun MedicalNotesScreen() {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall)
-            Text("Paste English medical text. Offline extractive summarization selects important sentences from your text only—no translation, textbook lookup, or added medical facts. Definitions are kept verbatim; mechanism/pathogenesis are shown as flowcharts.")
+            Text("Paste long English medical text. There is no fixed 500-character app limit. Notes and PDF can span multiple pages; Gemini may still apply request/token limits. Offline notes preserve all detected sentences from your text. Definitions are kept verbatim and mechanisms/pathogenesis are shown as flowcharts.")
             OutlinedTextField(
                 value = topic, onValueChange = { topic = it },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -129,7 +133,7 @@ private fun MedicalNotesScreen() {
             )
             OutlinedTextField(
                 value = sourceText, onValueChange = { sourceText = it; notes = null; status = "" },
-                modifier = Modifier.fillMaxWidth(), minLines = 7,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 180.dp), minLines = 7,
                 label = { Text("Paste English medical text") },
                 placeholder = { Text("Paste your topic text here in English...") }
             )
@@ -216,12 +220,27 @@ private fun MedicalNotesScreen() {
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(generated.topic, style = MaterialTheme.typography.titleLarge)
-                        generated.sections.forEach { section ->
-                            Text(section.title, style = MaterialTheme.typography.titleMedium)
-                            section.lines.forEachIndexed { index, line ->
-                                Text(if (section.flowchart && index < section.lines.lastIndex) "$line  ↓" else if (section.flowchart) line else "• $line")
+                        generated.sections.forEachIndexed { sectionIndex, section ->
+                            val sectionColors = listOf(
+                                Color(0xFFE8F1FF), Color(0xFFE6F7EE), Color(0xFFFFF2D9),
+                                Color(0xFFF3E8FF), Color(0xFFFFE8EC), Color(0xFFE4F7F8)
+                            )
+                            Column(
+                                Modifier.fillMaxWidth()
+                                    .background(sectionColors[sectionIndex % sectionColors.size], RoundedCornerShape(10.dp))
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(5.dp)
+                            ) {
+                                Text(section.title, style = MaterialTheme.typography.titleMedium, color = Color(0xFF17365D))
+                                section.lines.forEachIndexed { index, line ->
+                                    Text(
+                                        if (section.flowchart && index < section.lines.lastIndex) "$line  ↓"
+                                        else if (section.flowchart) line else "• $line",
+                                        color = Color(0xFF202124)
+                                    )
+                                }
                             }
                         }
                     }
@@ -236,7 +255,7 @@ private fun MedicalNotesScreen() {
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
             Text(
-                "Offline extractive summarization: selected sentences are copied from your text, not rewritten or supplemented. The Definition section is kept verbatim. Sentence selection can omit context, so review every section before using it for exams.",
+                "Offline notes now keep all detected sentences instead of selecting only a fraction. There is no fixed 500-character app limit, but device memory and Gemini request/token quotas still apply. Review medical content before exams.",
                 style = MaterialTheme.typography.bodySmall
             )
         }
@@ -465,37 +484,9 @@ private fun splitSentences(text: String): List<String> {
 }
 
 private fun selectKeySentences(section: String, sentences: List<String>): List<String> {
-    if (sentences.size <= 4) return sentences
-    val wordsBySentence = sentences.map { sentence ->
-        Regex("[A-Za-z][A-Za-z0-9'-]{2,}")
-            .findAll(sentence.lowercase(Locale.ROOT))
-            .map { it.value }
-            .filter { it !in summarizerStopWords }
-            .toList()
-    }
-    val frequencies = mutableMapOf<String, Int>()
-    wordsBySentence.flatten().forEach { word -> frequencies[word] = (frequencies[word] ?: 0) + 1 }
-    val sectionBoosts = when (section) {
-        "Etiology / Causes" -> setOf("cause", "causes", "due", "because", "risk", "factor", "associated", "secondary")
-        "Classification" -> setOf("type", "types", "class", "classified", "stage", "stages")
-        "Clinical Features" -> setOf("symptoms", "signs", "presents", "characterized", "features", "pain", "fever")
-        "Investigations" -> setOf("test", "tests", "diagnosis", "shows", "reveals", "levels", "criteria")
-        "Treatment" -> setOf("treatment", "management", "administer", "given", "therapy", "avoid", "first-line")
-        "Complications" -> setOf("complication", "complications", "may", "leads", "result", "results")
-        else -> emptySet()
-    }
-    val scored = sentences.mapIndexed { index, sentence ->
-        val words = wordsBySentence[index]
-        val termScore = if (words.isEmpty()) 0.0 else words.sumOf { (frequencies[it] ?: 0).toDouble() } / words.size
-        val sectionScore = if (words.any { it in sectionBoosts }) 1.2 else 0.0
-        val safetyScore = if (Regex("\\b(no|not|never|without|only|except|contraindicated|increased|decreased|acute|chronic|severe|normal|abnormal)\\b", RegexOption.IGNORE_CASE).containsMatchIn(sentence)) 1.0 else 0.0
-        val positionScore = if (index == 0) 1.0 else 0.0
-        val lengthPenalty = if (sentence.length > 260) 0.8 else 0.0
-        index to (termScore + sectionScore + safetyScore + positionScore - lengthPenalty)
-    }
-    val targetCount = maxOf(4, kotlin.math.ceil(sentences.size * 0.65).toInt()).coerceAtMost(sentences.size)
-    val selectedIndices = scored.sortedByDescending { it.second }.take(targetCount).map { it.first }.toSet()
-    return sentences.filterIndexed { index, _ -> index in selectedIndices }
+    // Keep every detected sentence rather than trimming notes to a fraction.
+    // Practical limits are device memory and upstream AI request/token quotas.
+    return sentences
 }
 
 private val summarizerStopWords = setOf(
@@ -534,6 +525,20 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
         textSize = 10.5f
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
     }
+    val sectionBackgroundColors = intArrayOf(
+        android.graphics.Color.rgb(232, 241, 255),
+        android.graphics.Color.rgb(230, 247, 238),
+        android.graphics.Color.rgb(255, 242, 217),
+        android.graphics.Color.rgb(243, 232, 255),
+        android.graphics.Color.rgb(255, 232, 236),
+        android.graphics.Color.rgb(228, 247, 248)
+    )
+    val sectionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    val sectionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(23, 54, 93)
+        textSize = 13f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
     var pageNumber = 0
     var page: PdfDocument.Page? = null
     var canvas: android.graphics.Canvas? = null
@@ -560,39 +565,45 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
             startPage()
         }
     }
-    fun drawWrapped(text: String, paint: Paint, indent: Float = 0f) {
+    fun drawWrapped(text: String, paint: Paint, indent: Float = 0f, sectionBg: Int? = null) {
         val maxWidth = pageWidth - margin * 2 - indent
         val words = text.split(Regex("\\s+"))
         var line = ""
+        fun drawLine(lineText: String) {
+            ensureSpace(17f)
+            if (sectionBg != null) {
+                sectionBgPaint.color = sectionBg
+                canvas!!.drawRoundRect(margin - 5f, y - 12f, pageWidth - margin + 5f, y + 4f, 4f, 4f, sectionBgPaint)
+            }
+            canvas!!.drawText(lineText, margin + indent, y, paint)
+            y += 15f
+        }
         words.forEach { word ->
             val candidate = if (line.isBlank()) word else "$line $word"
             if (paint.measureText(candidate) > maxWidth && line.isNotBlank()) {
-                ensureSpace(15f)
-                canvas!!.drawText(line, margin + indent, y, paint)
-                y += 14f
+                drawLine(line)
                 line = word
             } else line = candidate
         }
-        if (line.isNotBlank()) {
-            ensureSpace(15f)
-            canvas!!.drawText(line, margin + indent, y, paint)
-            y += 14f
-        }
+        if (line.isNotBlank()) drawLine(line)
     }
 
     startPage()
-    notes.sections.forEach { section ->
-        ensureSpace(24f)
-        y += 7f
-        canvas!!.drawText(section.title, margin, y, headingPaint)
-        y += 18f
+    notes.sections.forEachIndexed { sectionIndex, section ->
+        val sectionColor = sectionBackgroundColors[sectionIndex % sectionBackgroundColors.size]
+        ensureSpace(28f)
+        y += 8f
+        sectionBgPaint.color = sectionColor
+        canvas!!.drawRoundRect(margin - 5f, y - 14f, pageWidth - margin + 5f, y + 6f, 5f, 5f, sectionBgPaint)
+        canvas!!.drawText(section.title, margin, y, sectionTextPaint)
+        y += 20f
         section.lines.forEachIndexed { index, line ->
             val text = when {
-                section.flowchart && index < section.lines.lastIndex -> "${line}  ↓"
+                section.flowchart && index < section.lines.lastIndex -> "$line  ↓"
                 section.flowchart -> line
                 else -> "•  $line"
             }
-            drawWrapped(text, bodyPaint, if (section.flowchart) 12f else 0f)
+            drawWrapped(text, bodyPaint, if (section.flowchart) 12f else 0f, sectionColor)
         }
     }
     finishPage()

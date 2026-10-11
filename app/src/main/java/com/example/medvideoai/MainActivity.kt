@@ -41,6 +41,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -101,23 +102,30 @@ private data class MedicalNotes(val topic: String, val sections: List<NoteSectio
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MedicalNotesScreen() {
-    var topic by remember { mutableStateOf("") }
-    var sourceText by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val draftPrefs = remember { context.getSharedPreferences("mednotes_draft", android.content.Context.MODE_PRIVATE) }
+    var topic by remember { mutableStateOf(draftPrefs.getString("topic", "").orEmpty()) }
+    var sourceText by remember { mutableStateOf(draftPrefs.getString("sourceText", "").orEmpty()) }
     var apiKey by remember { mutableStateOf("") }
     var selectedModel by remember { mutableStateOf(geminiModelOptions.first()) }
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var availableModels by remember { mutableStateOf(geminiModelOptions) }
-    var notes by remember { mutableStateOf<MedicalNotes?>(null) }
+    var notes by remember { mutableStateOf(draftPrefs.getString("savedNotes", null)?.let { decodeMedicalNotes(it) }) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
     var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
-    val context = LocalContext.current
-    val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+    val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) {
             status = "Image selection cancelled."
         } else {
             try {
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(
+                        uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
                 val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
                 require(mime == "image/jpeg" || mime == "image/png" || mime == "image/webp") {
                     "Choose a JPG, PNG, or WEBP image."
@@ -136,9 +144,44 @@ private fun MedicalNotesScreen() {
                 status = "Image selected. Tap AI Summarize to create notes from the image."
             } catch (e: Exception) {
                 selectedImage = null
+                draftPrefs.edit().remove("imageUri").apply()
                 status = "Could not load image: ${e.message ?: "unknown error"}"
             }
         }
+    }
+    LaunchedEffect(Unit) {
+        val savedUri = draftPrefs.getString("imageUri", null)
+        if (!savedUri.isNullOrBlank()) {
+            runCatching {
+                val uri = Uri.parse(savedUri)
+                withContext(Dispatchers.IO) {
+                    val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: error("Saved image is no longer available")
+                    SelectedMedicalImage(
+                        uri = uri,
+                        mimeType = mime,
+                        base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                        previewBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                            ?: error("Could not decode saved image")
+                    )
+                }
+            }.onSuccess { selectedImage = it }
+             .onFailure { draftPrefs.edit().remove("imageUri").apply() }
+        }
+    }
+    LaunchedEffect(topic, sourceText, selectedImage?.uri) {
+        draftPrefs.edit()
+            .putString("topic", topic)
+            .putString("sourceText", sourceText)
+            .apply()
+        val imageUri = selectedImage?.uri?.toString()
+        if (imageUri.isNullOrBlank()) draftPrefs.edit().remove("imageUri").apply()
+        else draftPrefs.edit().putString("imageUri", imageUri).apply()
+    }
+    LaunchedEffect(notes) {
+        if (notes == null) draftPrefs.edit().remove("savedNotes").apply()
+        else draftPrefs.edit().putString("savedNotes", encodeMedicalNotes(notes!!)).apply()
     }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
@@ -164,6 +207,7 @@ private fun MedicalNotesScreen() {
                 TextButton(onClick = {
                     topic = ""; sourceText = ""; selectedImage = null; apiKey = ""; selectedModel = geminiModelOptions.first()
                     availableModels = geminiModelOptions; modelMenuExpanded = false; notes = null
+                    draftPrefs.edit().clear().apply()
                     busy = false; status = ""; pdfBytes = null
                 }) { Text("↻ Refresh") }
             }
@@ -182,7 +226,7 @@ private fun MedicalNotesScreen() {
 
             Text("Input source — use text, an image, or both.", style = MaterialTheme.typography.titleMedium)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { pickMedicalImage.launch("image/*") }, enabled = !busy) {
+                Button(onClick = { pickMedicalImage.launch(arrayOf("image/jpeg", "image/png", "image/webp")) }, enabled = !busy) {
                     Text(if (selectedImage == null) "Choose Image" else "Change Image")
                 }
                 TextButton(onClick = { selectedImage = null; notes = null; status = "Image removed." }, enabled = selectedImage != null && !busy) {
@@ -254,11 +298,12 @@ private fun MedicalNotesScreen() {
                     availableModels = geminiModelOptions
                     modelMenuExpanded = false
                     notes = null
+                    draftPrefs.edit().clear().apply()
                     status = "Ready for new notes."
                     pdfBytes = null
                 }
             ) { Text("Clear / New Notes") }
-            Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
+            Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. Topic, pasted text, selected image reference, and generated notes are auto-saved on this device. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
@@ -431,17 +476,25 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         throw IllegalStateException("Auto mode tried the fast, balanced, and quality models but none succeeded. Last error: ${lastError?.message ?: "unknown error"}")
     }
     val prompt = """
-        You are formatting a medical student's notes.
-        Use only the supplied source text and/or the supplied image. Do not use outside sources, web browsing, or facts from your general knowledge.
+        You are an MBBS study-notes tutor. Convert the supplied text/image into concise, easy-to-understand, point-to-point exam notes.
+        Do NOT simply copy-paste the whole source, except copy the original definition verbatim when a clear definition is present.
+        Use the source as the factual basis. You may give a brief standard explanation of a symptom or a named drug's action to help understanding; do not invent patient-specific details, doses, or treatments.
+        If an image is provided, read visible text, labels, diagrams, arrows, and tables. If both text and image are supplied, combine them without duplicating points.
         If an image is provided, read the visible medical text, diagrams, labels, arrows, and tables carefully. Create notes from the image content without inventing unreadable details.
         If both text and image are supplied, combine them while avoiding unsupported additions.
-        Do not translate. Do not invent, correct, or supplement medical facts.
-        Preserve every definition verbatim exactly as it appears in the source (copy the definition wording and punctuation; do not paraphrase it).
-        Condense other sections into concise exam notes using only source-supported statements.
-        Keep causes/etiology as short bullet points. Preserve numbers, units, negations, uncertainty, qualifiers, drug names, doses, contraindications, and exceptions.
-        For Mechanism of Action and Pathogenesis, write a step-by-step sequence joined by ->, without adding steps.
-        Keep headings when present. If a fact is unclear, retain its original wording instead of guessing.
-        Return plain text only, with no introduction or conclusion.
+        Output only short bullets and flowcharts, no long paragraphs or repeated sentences.
+        Use these headings when relevant:
+        Definition: exact source wording if supplied.
+        Causes / Etiology: short cause → one-line explanation.
+        Classification: type-wise points.
+        Clinical Features: each symptom/sign + a single brief explanation of why it occurs, when medically supported.
+        Pathogenesis: arrow flowchart from cause to disease changes and features.
+        Mechanism of Action: arrow flowchart or drug → target → action → effect.
+        Investigations: test → what it detects/shows, in one line.
+        Treatment: each named drug/intervention → its main action/target → intended effect, one line each. Include dose only if the source supplies it. Do not prescribe unsupported new drugs.
+        Complications / Prevention / Important Points: short high-yield bullets.
+        Keep all key exam facts, numbers, units, negatives, contraindications, and exceptions. If something is not clear or not present, do not guess; write "Not specified in source" only when needed.
+        Return plain text only, without an introduction or conclusion.
         TOPIC: $topic
 
         SOURCE TEXT START
@@ -497,6 +550,37 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
         connection.disconnect()
     }
 }
+
+private fun encodeMedicalNotes(notes: MedicalNotes): String {
+    val sections = JSONArray()
+    notes.sections.forEach { section ->
+        sections.put(JSONObject()
+            .put("title", section.title)
+            .put("lines", JSONArray(section.lines))
+            .put("flowchart", section.flowchart)
+            .put("mindMap", section.mindMap)
+            .put("important", section.important))
+    }
+    return JSONObject().put("topic", notes.topic).put("sections", sections).toString()
+}
+
+private fun decodeMedicalNotes(jsonText: String): MedicalNotes? = runCatching {
+    val json = JSONObject(jsonText)
+    val array = json.getJSONArray("sections")
+    val sections = (0 until array.length()).mapNotNull { i ->
+        val item = array.optJSONObject(i) ?: return@mapNotNull null
+        val linesJson = item.optJSONArray("lines") ?: JSONArray()
+        val lines = (0 until linesJson.length()).map { linesJson.optString(it) }.filter { it.isNotBlank() }
+        if (lines.isEmpty()) null else NoteSection(
+            title = item.optString("title", "Important Points"),
+            lines = lines,
+            flowchart = item.optBoolean("flowchart"),
+            mindMap = item.optBoolean("mindMap"),
+            important = item.optBoolean("important")
+        )
+    }
+    MedicalNotes(json.optString("topic", "Medical Notes"), sections)
+}.getOrNull()
 
 private fun inferTopic(text: String): String {
     val first = text.lineSequence().map { it.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()

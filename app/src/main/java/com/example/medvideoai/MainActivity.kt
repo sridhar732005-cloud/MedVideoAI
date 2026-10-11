@@ -719,6 +719,18 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
         android.graphics.Color.rgb(228, 247, 248)
     )
     val sectionBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    val importantBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(255, 213, 128)
+        style = Paint.Style.FILL
+    }
+    val flowNodePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+    }
+    val flowArrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(52, 82, 130)
+        strokeWidth = 1.5f
+        style = Paint.Style.STROKE
+    }
     val sectionTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = android.graphics.Color.rgb(23, 54, 93)
         textSize = 13f
@@ -750,18 +762,29 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
             startPage()
         }
     }
-    fun drawWrapped(text: String, paint: Paint, indent: Float = 0f, sectionBg: Int? = null) {
+    fun drawWrapped(
+        text: String,
+        paint: Paint,
+        indent: Float = 0f,
+        sectionBg: Int? = null,
+        darkImportant: Boolean = false
+    ) {
         val maxWidth = pageWidth - margin * 2 - indent
         val words = text.split(Regex("\\s+"))
         var line = ""
         fun drawLine(lineText: String) {
-            ensureSpace(17f)
-            if (sectionBg != null) {
+            ensureSpace(19f)
+            val left = margin - 5f
+            val right = pageWidth - margin + 5f
+            if (darkImportant) {
+                importantBgPaint.color = android.graphics.Color.rgb(255, 213, 128)
+                canvas!!.drawRoundRect(left, y - 13f, right, y + 5f, 4f, 4f, importantBgPaint)
+            } else if (sectionBg != null) {
                 sectionBgPaint.color = sectionBg
-                canvas!!.drawRoundRect(margin - 5f, y - 12f, pageWidth - margin + 5f, y + 4f, 4f, 4f, sectionBgPaint)
+                canvas!!.drawRoundRect(left, y - 12f, right, y + 4f, 4f, 4f, sectionBgPaint)
             }
             canvas!!.drawText(lineText, margin + indent, y, paint)
-            y += 15f
+            y += 16f
         }
         words.forEach { word ->
             val candidate = if (line.isBlank()) word else "$line $word"
@@ -773,26 +796,82 @@ private fun createPdf(notes: MedicalNotes): ByteArray {
         if (line.isNotBlank()) drawLine(line)
     }
 
+    fun drawFlowNode(text: String, color: Int) {
+        val nodePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = color
+            style = Paint.Style.FILL
+        }
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = android.graphics.Color.rgb(29, 48, 75)
+            textSize = 10.5f
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        }
+        val maxTextWidth = pageWidth - margin * 2 - 32f
+        val words = text.split(Regex("\\s+"))
+        val lines = mutableListOf<String>()
+        var line = ""
+        words.forEach { word ->
+            val candidate = if (line.isBlank()) word else "$line $word"
+            if (textPaint.measureText(candidate) > maxTextWidth && line.isNotBlank()) {
+                lines.add(line)
+                line = word
+            } else line = candidate
+        }
+        if (line.isNotBlank()) lines.add(line)
+        val nodeHeight = (lines.size * 14f + 16f).coerceAtLeast(34f)
+        ensureSpace(nodeHeight + 22f)
+        val left = margin + 12f
+        val right = pageWidth - margin - 12f
+        sectionBgPaint.color = color
+        canvas!!.drawRoundRect(left, y - 14f, right, y - 14f + nodeHeight, 7f, 7f, sectionBgPaint)
+        lines.forEachIndexed { i, nodeLine ->
+            val textWidth = textPaint.measureText(nodeLine)
+            canvas!!.drawText(nodeLine, (pageWidth - textWidth) / 2f, y + 5f + i * 14f, textPaint)
+        }
+        y += nodeHeight
+    }
+
+    fun drawFlowArrow() {
+        ensureSpace(20f)
+        val centerX = pageWidth / 2f
+        val top = y + 2f
+        val bottom = y + 13f
+        canvas!!.drawLine(centerX, top, centerX, bottom, flowArrowPaint)
+        canvas!!.drawLine(centerX - 4f, bottom - 4f, centerX, bottom, flowArrowPaint)
+        canvas!!.drawLine(centerX + 4f, bottom - 4f, centerX, bottom, flowArrowPaint)
+        y += 19f
+    }
     startPage()
     notes.sections.forEachIndexed { sectionIndex, section ->
         val sectionColor = sectionBackgroundColors[sectionIndex % sectionBackgroundColors.size]
-        ensureSpace(32f)
+        ensureSpace(34f)
         y += 8f
-        sectionBgPaint.color = sectionColor
+        sectionBgPaint.color = if (section.important) android.graphics.Color.rgb(255, 213, 128) else sectionColor
         canvas!!.drawRoundRect(margin - 5f, y - 14f, pageWidth - margin + 5f, y + 7f, 5f, 5f, sectionBgPaint)
         val headerPaint = if (section.important) titlePaint else sectionTextPaint
         canvas!!.drawText(section.title, margin, y, headerPaint)
         y += if (section.important) 24f else 20f
-        section.lines.forEachIndexed { index, line ->
-            val text = when {
-                section.mindMap && index == 0 -> "●  $line"
-                section.mindMap -> "   ├─  $line"
-                section.flowchart && index < section.lines.lastIndex -> "$line  ↓"
-                section.flowchart -> line
-                section.important -> "★  $line"
-                else -> "•  $line"
+        if (section.flowchart) {
+            section.lines.forEachIndexed { index, line ->
+                drawFlowNode(line, sectionBackgroundColors[index % sectionBackgroundColors.size])
+                if (index < section.lines.lastIndex) drawFlowArrow()
             }
-            drawWrapped(text, if (section.important) headingPaint else bodyPaint, if (section.flowchart || section.mindMap) 12f else 0f, sectionColor)
+        } else {
+            section.lines.forEachIndexed { index, line ->
+                val text = when {
+                    section.mindMap && index == 0 -> "●  $line"
+                    section.mindMap -> "   ├─  $line"
+                    section.important -> "★  $line"
+                    else -> "•  $line"
+                }
+                drawWrapped(
+                    text,
+                    if (section.important) titlePaint else bodyPaint,
+                    if (section.mindMap) 12f else 0f,
+                    sectionColor,
+                    darkImportant = section.important
+                )
+            }
         }
     }
     finishPage()

@@ -1243,7 +1243,11 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
             drawWrapped("Image source: Wikimedia Commons — ${visual.title.take(85)}", bodyPaint, indent = 4f)
             y += 5f
         }
-        if (section.flowchart) {
+        if (section.title.contains("differentiation", ignoreCase = true) || section.lines.any { it.count { ch -> ch == '|' } >= 1 }) {
+            section.lines.forEachIndexed { index, line ->
+                drawComparisonRow(line, sectionBackgroundColors[(sectionIndex + index) % sectionBackgroundColors.size])
+            }
+        } else if (section.flowchart) {
             section.lines.forEachIndexed { index, line ->
                 drawFlowNode(line, sectionBackgroundColors[index % sectionBackgroundColors.size])
                 if (index < section.lines.lastIndex) drawFlowArrow()

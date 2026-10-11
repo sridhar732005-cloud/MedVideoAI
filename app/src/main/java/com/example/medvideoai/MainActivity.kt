@@ -1157,6 +1157,30 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
         }
         y += cardHeight + 7f
     }
+    fun drawComparisonRow(text: String, backgroundColor: Int) {
+        val cells = text.split("|").map { it.trim() }.filter { it.isNotEmpty() }
+        if (cells.size < 2) {
+            drawBulletCard(text, bodyPaint, backgroundColor)
+            return
+        }
+        val cellPaint = Paint(bodyPaint).apply { textSize = 10.5f }
+        val cellWidth = (pageWidth - margin * 2 - 8f) / cells.size
+        val horizontalPadding = 6f
+        val lineHeight = 14f
+        val wrapped = cells.map { wrapForWidth(it, cellPaint, cellWidth - horizontalPadding * 2) }
+        val rowHeight = (wrapped.maxOf { it.size } * lineHeight + 14f).coerceAtLeast(32f)
+        ensureSpace(rowHeight + 8f)
+        cells.indices.forEach { index ->
+            val left = margin + index * cellWidth
+            sectionBgPaint.color = backgroundColor
+            canvas!!.drawRoundRect(left, y - 10f, left + cellWidth - 3f, y - 10f + rowHeight, 4f, 4f, sectionBgPaint)
+            wrapped[index].forEachIndexed { lineIndex, value ->
+                canvas!!.drawText(value, left + horizontalPadding, y + 5f + lineIndex * lineHeight, cellPaint)
+            }
+        }
+        y += rowHeight + 7f
+    }
+
     fun drawFlowNode(text: String, color: Int) {
         val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             this.color = android.graphics.Color.rgb(29, 48, 75)

@@ -13,9 +13,10 @@ Native Android medical-notes formatter built with Kotlin and Jetpack Compose.
 
 ## Important limitations
 
-- This version is a rule-based formatter, not an AI medical summarizer. It organizes the supplied text and preserves its wording; it cannot reliably rewrite every long paragraph into a shorter version while guaranteeing that medical meaning is unchanged.
-- For concise results, paste source material with headings and short sentences. Review the generated notes before using them for exams.
-- Medical facts are not independently verified.
+- The app now uses an offline extractive summarizer: it scores sentences from the supplied text and selects a shorter set in their original order. It does not generate new sentences, translate, browse textbooks, or add outside medical facts.
+- The Definition section is kept verbatim after the heading/bullet marker is removed. Other sections are condensed by selecting source sentences; mechanism/pathogenesis sections are displayed as a step flowchart.
+- Extractive summarization can omit context or miss an important sentence. Always review the preview and compare it with the source before using notes for exams or clinical learning. This is not a substitute for medical judgment.
+- Sentence splitting is English-rule based and may not handle every abbreviation or unusual formatting perfectly.
 
 ## Build
 

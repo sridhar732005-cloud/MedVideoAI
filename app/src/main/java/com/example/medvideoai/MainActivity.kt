@@ -1,6 +1,8 @@
 package com.example.medvideoai
 
 import android.graphics.Paint
+import android.graphics.BitmapFactory
+import android.util.Base64
 import android.graphics.Typeface
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
@@ -9,6 +11,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +57,7 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.io.InputStream
 import java.io.ByteArrayOutputStream
 import java.util.Locale
 
@@ -72,6 +78,7 @@ private val geminiModelOptions = listOf(
 )
 
 private data class NoteSection(val title: String, val lines: List<String>, val flowchart: Boolean = false, val mindMap: Boolean = false, val important: Boolean = false)
+private data class SelectedMedicalImage(val uri: Uri, val mimeType: String, val base64Data: String, val previewBitmap: android.graphics.Bitmap)
 private data class MedicalNotes(val topic: String, val sections: List<NoteSection>) {
     fun plainText(): String = buildString {
         append(topic.trim().ifBlank { "Medical Notes" }).append("\n\n")
@@ -104,6 +111,34 @@ private fun MedicalNotesScreen() {
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
+    val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) {
+            status = "Image selection cancelled."
+        } else {
+            try {
+                val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
+                require(mime == "image/jpeg" || mime == "image/png" || mime == "image/webp") {
+                    "Choose a JPG, PNG, or WEBP image."
+                }
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?: error("Could not read selected image")
+                require(bytes.isNotEmpty()) { "Selected image is empty." }
+                selectedImage = SelectedMedicalImage(
+                    uri = uri,
+                    mimeType = mime,
+                    base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
+                    previewBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?: error("Could not decode image")
+                )
+                notes = null
+                status = "Image selected. Tap AI Summarize to create notes from the image."
+            } catch (e: Exception) {
+                selectedImage = null
+                status = "Could not load image: ${e.message ?: "unknown error"}"
+            }
+        }
+    }
     val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
@@ -127,7 +162,7 @@ private fun MedicalNotesScreen() {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Medical Text → Exam Notes → PDF", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
-                    topic = ""; sourceText = ""; apiKey = ""; selectedModel = geminiModelOptions.first()
+                    topic = ""; sourceText = ""; selectedImage = null; apiKey = ""; selectedModel = geminiModelOptions.first()
                     availableModels = geminiModelOptions; modelMenuExpanded = false; notes = null
                     busy = false; status = ""; pdfBytes = null
                 }) { Text("↻ Refresh") }
@@ -144,6 +179,30 @@ private fun MedicalNotesScreen() {
                 label = { Text("Paste English medical text") },
                 placeholder = { Text("Paste your topic text here in English...") }
             )
+
+            Text("Input source — use text, an image, or both.", style = MaterialTheme.typography.titleMedium)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { pickMedicalImage.launch("image/*") }, enabled = !busy) {
+                    Text(if (selectedImage == null) "Choose Image" else "Change Image")
+                }
+                TextButton(onClick = { selectedImage = null; notes = null; status = "Image removed." }, enabled = selectedImage != null && !busy) {
+                    Text("Remove Image")
+                }
+            }
+            selectedImage?.let { picture ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Image(
+                        bitmap = picture.previewBitmap.asImageBitmap(),
+                        contentDescription = "Selected medical image preview",
+                        modifier = Modifier.size(112.dp)
+                    )
+                    Column {
+                        Text("Image ready for AI analysis", style = MaterialTheme.typography.titleSmall)
+                        Text(picture.mimeType, style = MaterialTheme.typography.bodySmall)
+                        Text("Image content is sent only when you tap AI Summarize.", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             OutlinedTextField(
                 value = apiKey, onValueChange = { apiKey = it.trim(); status = "" },
                 modifier = Modifier.fillMaxWidth(), singleLine = true,
@@ -189,6 +248,7 @@ private fun MedicalNotesScreen() {
                 onClick = {
                     topic = ""
                     sourceText = ""
+                    selectedImage = null
                     apiKey = ""
                     selectedModel = geminiModelOptions.first()
                     availableModels = geminiModelOptions
@@ -213,20 +273,27 @@ private fun MedicalNotesScreen() {
                 }
             ) { Text("Make Short Notes (Offline)") }
             Button(
-                enabled = sourceText.isNotBlank() && apiKey.isNotBlank() && !busy,
+                enabled = (sourceText.isNotBlank() || selectedImage != null) && apiKey.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
                 onClick = {
                     busy = true
                     status = "Sending text for AI summarization..."
                     val input = sourceText.trim()
-                    val title = topic.trim().ifBlank { inferTopic(input) }
+                    val title = topic.trim().ifBlank {
+                        when {
+                            input.isNotBlank() -> inferTopic(input)
+                            selectedImage != null -> "Image Medical Notes"
+                            else -> "Medical Notes"
+                        }
+                    }
+                    val picture = selectedImage
                     scope.launch {
                         try {
                             val summarized = withContext(Dispatchers.IO) {
-                                summarizeWithGemini(apiKey, title, input, selectedModel.id)
+                                summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
-                            notes = formatMedicalNotes(title, restoreExactDefinition(title, input, summarized))
-                            status = "AI summary received. Compare the preview with your source before saving."
+                            notes = formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized))
+                            status = "AI notes received. Review every medical detail before saving the PDF."
                         } catch (e: Exception) {
                             status = "AI summary failed: ${e.message ?: "unknown error"}. You can still use Offline Short Notes."
                         } finally {
@@ -350,13 +417,13 @@ private fun fetchAvailableGeminiModels(apiKey: String): List<GeminiModelOption> 
     }
 }
 
-private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String, modelId: String): String {
+private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: String, modelId: String, imageMimeType: String? = null, imageBase64: String? = null): String {
     if (modelId == "auto") {
         val candidates = listOf("gemini-3.5-flash-lite", "gemini-3.6-flash", "gemini-3.8-flash")
         var lastError: Exception? = null
         for (candidate in candidates) {
             try {
-                return summarizeWithGemini(apiKey, topic, sourceText, candidate)
+                return summarizeWithGemini(apiKey, topic, sourceText, candidate, imageMimeType, imageBase64)
             } catch (e: Exception) {
                 lastError = e
             }
@@ -365,7 +432,9 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
     }
     val prompt = """
         You are formatting a medical student's notes.
-        Use ONLY the SOURCE TEXT below. Do not use outside sources, web browsing, or facts from your general knowledge.
+        Use only the supplied source text and/or the supplied image. Do not use outside sources, web browsing, or facts from your general knowledge.
+        If an image is provided, read the visible medical text, diagrams, labels, arrows, and tables carefully. Create notes from the image content without inventing unreadable details.
+        If both text and image are supplied, combine them while avoiding unsupported additions.
         Do not translate. Do not invent, correct, or supplement medical facts.
         Preserve every definition verbatim exactly as it appears in the source (copy the definition wording and punctuation; do not paraphrase it).
         Condense other sections into concise exam notes using only source-supported statements.
@@ -397,10 +466,16 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
                 JSONObject().put("thinkingLevel", if (modelId.contains("lite")) "low" else "high")
             )
         }
+        val parts = JSONArray().put(JSONObject().put("text", prompt))
+        if (!imageMimeType.isNullOrBlank() && !imageBase64.isNullOrBlank()) {
+            parts.put(
+                JSONObject().put("inline_data",
+                    JSONObject().put("mime_type", imageMimeType).put("data", imageBase64)
+                )
+            )
+        }
         val requestBody = JSONObject()
-            .put("contents", JSONArray().put(
-                JSONObject().put("parts", JSONArray().put(JSONObject().put("text", prompt)))
-            ))
+            .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
             .put("generationConfig", generationConfig)
         connection.outputStream.use { it.write(requestBody.toString().toByteArray(Charsets.UTF_8)) }
         val statusCode = connection.responseCode

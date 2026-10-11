@@ -284,7 +284,7 @@ private fun inferTopic(text: String): String {
 private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val known = listOf(
         "Definition" to listOf("definition", "meaning"),
-        "Etiology / Causes" to listOf("etiology", "causes", "cause", "risk factors"),
+        "Etiology / Causes" to listOf("etiology / causes", "etiology", "causes", "cause", "risk factors"),
         "Classification" to listOf("classification", "types", "type"),
         "Mechanism of Action" to listOf("mechanism of action", "mechanism", "pathophysiology"),
         "Pathogenesis" to listOf("pathogenesis"),

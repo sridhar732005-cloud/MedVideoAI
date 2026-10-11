@@ -364,7 +364,20 @@ private fun MedicalNotesScreen() {
                             val summarized = withContext(Dispatchers.IO) {
                                 summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
-                            notes = formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized))
+                            val summaryLines = summarized.lines()
+                            val imageTitle = if (input.isBlank()) {
+                                summaryLines.firstOrNull { it.isNotBlank() }
+                                    ?.trim()
+                                    ?.removePrefix("#")
+                                    ?.trim()
+                                    ?.trimEnd(':')
+                                    ?.takeIf { it.length in 2..100 && !it.endsWith(".") }
+                                    ?: title
+                            } else title
+                            val noteBody = if (input.isBlank() && summaryLines.isNotEmpty()) {
+                                summaryLines.dropWhile { it.isBlank() }.drop(1).joinToString("\n").trim()
+                            } else restoreExactDefinition(title, input, summarized)
+                            notes = formatMedicalNotes(imageTitle, noteBody)
                             topicVisuals = emptyList()
                             visualLookupStatus = ""
                             visualLookupBusy = false

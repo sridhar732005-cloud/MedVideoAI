@@ -273,6 +273,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            if (notes == null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Create Medical Notes", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
@@ -451,9 +452,14 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                 CircularProgressIndicator()
                 Text("Formatting notes...")
             }
+            }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                            TextButton(onClick = { notes = null; status = "Returned to Home. Generated notes are preserved." }) { Text("← Home") }
+                            Text("Notes Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
                         Text(generated.topic, style = MaterialTheme.typography.titleLarge, color = Color(0xFF23416E))
                         generated.sections.forEachIndexed { sectionIndex, section ->
                             val sectionColors = listOf(

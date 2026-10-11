@@ -143,12 +143,16 @@ private fun MedicalNotesScreen() {
                 val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     ?: error("Could not read selected image")
                 require(bytes.isNotEmpty()) { "Selected image is empty." }
+                val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    ?: error("Could not decode image")
+                val analysisBitmap = resizeForFastAnalysis(originalBitmap)
+                val encodedStream = ByteArrayOutputStream()
+                analysisBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, encodedStream)
                 selectedImage = SelectedMedicalImage(
                     uri = uri,
-                    mimeType = mime,
-                    base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
-                    previewBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                        ?: error("Could not decode image")
+                    mimeType = "image/jpeg",
+                    base64Data = Base64.encodeToString(encodedStream.toByteArray(), Base64.NO_WRAP),
+                    previewBitmap = originalBitmap
                 )
                 notes = null
                 status = "Image selected. Tap AI Summarize to create notes from the image."
@@ -168,12 +172,16 @@ private fun MedicalNotesScreen() {
                     val mime = context.contentResolver.getType(uri) ?: "image/jpeg"
                     val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: error("Saved image is no longer available")
+                    val originalBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        ?: error("Could not decode saved image")
+                    val analysisBitmap = resizeForFastAnalysis(originalBitmap)
+                    val encodedStream = ByteArrayOutputStream()
+                    analysisBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 88, encodedStream)
                     SelectedMedicalImage(
                         uri = uri,
-                        mimeType = mime,
-                        base64Data = Base64.encodeToString(bytes, Base64.NO_WRAP),
-                        previewBitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            ?: error("Could not decode saved image")
+                        mimeType = "image/jpeg",
+                        base64Data = Base64.encodeToString(encodedStream.toByteArray(), Base64.NO_WRAP),
+                        previewBitmap = originalBitmap
                     )
                 }
             }.onSuccess { selectedImage = it }
@@ -495,6 +503,15 @@ private fun MedicalNotesScreen() {
 }
 
 
+private fun resizeForFastAnalysis(source: android.graphics.Bitmap, maxDimension: Int = 1800): android.graphics.Bitmap {
+    val largest = maxOf(source.width, source.height)
+    if (largest <= maxDimension) return source
+    val scale = maxDimension.toFloat() / largest.toFloat()
+    val width = (source.width * scale).toInt().coerceAtLeast(1)
+    val height = (source.height * scale).toInt().coerceAtLeast(1)
+    return android.graphics.Bitmap.createScaledBitmap(source, width, height, true)
+}
+
 private fun containsTamil(text: String): Boolean = text.any { it.code in 0x0B80..0x0BFF }
 
 private fun restoreExactDefinition(topic: String, sourceText: String, summaryText: String): String {
@@ -657,19 +674,8 @@ private fun summarizeWithGeminiSingleAttempt(
         GOAL: make exam notes ONLY from the user-provided text and/or selected image. Never search the internet, consult other books, add external references, or include unrelated illustrations.
         LENGTH AND COVERAGE: make concise but understandable notes, while preserving every relevant heading and every legible item from the supplied source. If it lists 5 symptoms, retain all 5; if it lists 10 causes, retain all 10. Never silently omit source-listed points or replace a list with a few examples. Add a brief explanation only where it helps understanding.
         SOURCE ACCURACY: use only facts readable in the supplied image or pasted text. Preserve a supplied definition as written when legible. Do not invent doses, lab values, treatments, causes, symptoms, or unreadable details. Explain why a listed symptom or cause occurs only when supported by the provided material; otherwise do not guess.
-        INPUT ANALYSIS: carefully read all supplied text and image content. For images, interpret legible labels, tables, arrows, and diagram relationships; do not guess unclear material. Combine text+image without duplication.
-        OUTPUT RULES: plain text only, compact bullets, no long paragraphs. Use only relevant headings from this set:
-        Definition: original wording if present.
-        Etiology / Causes: key causes, grouped logically.
-        Classification: numbered/type-wise, with defining distinctions.
-        Pathophysiology / Pathogenesis: show as a step-by-step arrow flowchart (cause → intermediate change → final effect/manifestation).
-        Mechanism of Action: drug/intervention → target → action → effect flowchart.
-        Clinical Features: major symptoms/signs; add a brief mechanism only when important and well-supported.
-        Investigations: test → key finding/what it demonstrates.
-        Treatment / Management: intervention → target/action → intended result; only include source-mentioned treatments unless an essential clarification is explicitly labelled.
-        Complications: highest-yield outcomes only.
-        Important Points: examination traps, differentiating features, red flags, key numbers/criteria.
-        Prevention / Prognosis: only if relevant and supported.
+        INPUT ANALYSIS: quickly inspect the complete supplied image/text. Preserve the exact source topic title and exact section headings as printed, including spelling, wording, order, and hierarchy. Do not rename "Causes" to "Etiology", "Symptoms" to "Clinical Features", or any other heading. Keep Definition text verbatim. Preserve every readable item, number, stage, classification type, symptom, cause, and test name; never omit items to shorten the notes. If the image contains four tests, list those same four tests. If an item is unclear, mark only that item as [unclear in source] instead of guessing.
+        OUTPUT RULES: return plain text with the original headings copied exactly, each on its own line. Keep every listed item under its original heading and order. For each source item, add a short explanation only when the supplied source supports it. Do not add headings that are not in the source, except "Important Points" for a few clearly relevant exam tips; do not add any external facts or references. Preserve a source flow/sequence with arrows but do not alter the underlying steps.
         FLOWCHARTS: use arrows (→) whenever sequence, cause-and-effect, mechanism, progression, diagnostic decision, or treatment response is being explained. Do not force a flowchart for simple lists or definitions.
         PRIORITY: correctness and topic analysis first; concise high-yield points second; attractive formatting is handled by the app. Return notes only, no opening or closing commentary.
         TOPIC: $topic

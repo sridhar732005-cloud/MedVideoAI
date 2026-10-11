@@ -537,7 +537,7 @@ private fun restoreExactDefinition(topic: String, sourceText: String, summaryTex
     val definitionHeading = Regex("^\\s*(?:#+\\s*)?definition\\s*:?(?:\\s+.*)?$", RegexOption.IGNORE_CASE)
     val start = lines.indexOfFirst { definitionHeading.matches(it.trim().replace(Regex("[*_\\\\`]+"), "")) }
     val sectionHeading = Regex(
-        "^\\s*(?:#+\\s*)?(definition|etiology(?:\\s*/\\s*causes)?|causes?|risk factors|classification|types?|mechanism(?: of action)?|pathogenesis|clinical features|symptoms|signs|investigations|diagnosis|tests|treatment|management|therapy|complications|prevention|prophylaxis)\\s*:?\\s*$",
+        "^\\s*(?:#+\\s*)?(definition|etiology(?:\\s*/\\s*causes)?|causes?|risk factors|classification|types?|mechanism(?: of action)?|pathophysiology|pathogenesis|clinical features|clinical presentation|symptoms|signs|investigations|diagnosis|tests|treatment(?:\\s*/\\s*management)?|management|therapy|complications|prevention|prophylaxis|important points|high-yield points|key points)\\s*:?\\s*$",
         RegexOption.IGNORE_CASE
     )
     if (start < 0) {

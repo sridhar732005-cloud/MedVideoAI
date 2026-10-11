@@ -115,6 +115,7 @@ private fun MedicalNotesScreen() {
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
     var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
+    var imageRestoreComplete by remember { mutableStateOf(false) }
     val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) {
             status = "Image selection cancelled."
@@ -169,15 +170,20 @@ private fun MedicalNotesScreen() {
             }.onSuccess { selectedImage = it }
              .onFailure { draftPrefs.edit().remove("imageUri").apply() }
         }
+        imageRestoreComplete = true
     }
-    LaunchedEffect(topic, sourceText, selectedImage?.uri) {
+    LaunchedEffect(topic, sourceText) {
         draftPrefs.edit()
             .putString("topic", topic)
             .putString("sourceText", sourceText)
             .apply()
-        val imageUri = selectedImage?.uri?.toString()
-        if (imageUri.isNullOrBlank()) draftPrefs.edit().remove("imageUri").apply()
-        else draftPrefs.edit().putString("imageUri", imageUri).apply()
+    }
+    LaunchedEffect(selectedImage?.uri, imageRestoreComplete) {
+        if (imageRestoreComplete) {
+            val imageUri = selectedImage?.uri?.toString()
+            if (imageUri.isNullOrBlank()) draftPrefs.edit().remove("imageUri").apply()
+            else draftPrefs.edit().putString("imageUri", imageUri).apply()
+        }
     }
     LaunchedEffect(notes) {
         if (notes == null) draftPrefs.edit().remove("savedNotes").apply()

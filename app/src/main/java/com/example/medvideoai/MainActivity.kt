@@ -461,36 +461,48 @@ private fun MedicalNotesScreen() {
                                         }
                                     }
                                 } else if (section.mindMap && section.lines.isNotEmpty()) {
-                                    Text(
-                                        "●  ${section.lines.first()}",
-                                        style = MaterialTheme.typography.titleSmall,
-                                        color = headingColor
-                                    )
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(9.dp),
+                                        colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = sectionColors[(sectionIndex + 1) % sectionColors.size])
+                                    ) {
+                                        Text(
+                                            "●  ${section.lines.first()}",
+                                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                                            style = MaterialTheme.typography.titleSmall,
+                                            color = headingColor
+                                        )
+                                    }
                                     section.lines.drop(1).forEachIndexed { branchIndex, branch ->
-                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text("├─", color = Color(0xFF345282))
-                                            Text(branch, modifier = Modifier.weight(1f), color = Color(0xFF202124))
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = sectionColors[(branchIndex + sectionIndex + 2) % sectionColors.size])
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(10.dp),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text("↳", color = Color(0xFF345282))
+                                                Text(branch, modifier = Modifier.weight(1f), color = Color(0xFF202124))
+                                            }
                                         }
                                     }
                                 } else {
-                                    section.lines.forEach { line ->
-                                        if (section.important) {
-                                            Card(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                shape = RoundedCornerShape(8.dp),
-                                                colors = androidx.compose.material3.CardDefaults.cardColors(
-                                                    containerColor = Color(0xFFFFE3A3)
-                                                )
-                                            ) {
-                                                Text(
-                                                    "★  $line",
-                                                    modifier = Modifier.fillMaxWidth().padding(10.dp),
-                                                    style = MaterialTheme.typography.titleSmall,
-                                                    color = Color(0xFF5B3200)
-                                                )
-                                            }
-                                        } else {
-                                            Text("• $line", color = Color(0xFF202124), style = MaterialTheme.typography.bodyMedium)
+                                    section.lines.forEachIndexed { lineIndex, line ->
+                                        val itemBackground = if (section.important) Color(0xFFFFE3A3)
+                                            else sectionColors[(sectionIndex + lineIndex + 1) % sectionColors.size]
+                                        Card(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = itemBackground)
+                                        ) {
+                                            Text(
+                                                "${if (section.important) "★" else "•"}  $line",
+                                                modifier = Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 10.dp),
+                                                style = if (section.important) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                                                color = if (section.important) Color(0xFF5B3200) else Color(0xFF202124)
+                                            )
                                         }
                                     }
                                 }

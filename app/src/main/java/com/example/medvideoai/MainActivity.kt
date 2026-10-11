@@ -1037,7 +1037,9 @@ private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyL
             sectionBgPaint.color = sectionBackgroundColors[(sectionIndex + 2) % sectionBackgroundColors.size]
             canvas!!.drawRoundRect(left - 5f, y - 12f, left + drawW + 5f, y + drawH + 8f, 7f, 7f, sectionBgPaint)
             canvas!!.drawBitmap(bitmap, null, android.graphics.RectF(left, y - 7f, left + drawW, y + drawH - 7f), Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-            y += drawH + 12f
+            y += drawH + 5f
+            drawWrapped("Image source: Wikimedia Commons — ${visual.title.take(85)}", bodyPaint, indent = 4f)
+            y += 5f
         }
         if (section.flowchart) {
             section.lines.forEachIndexed { index, line ->

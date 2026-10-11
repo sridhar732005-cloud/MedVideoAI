@@ -112,6 +112,7 @@ private fun MedicalNotesScreen() {
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
     var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
+    val context = LocalContext.current
     val pickMedicalImage = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri == null) {
             status = "Image selection cancelled."
@@ -139,7 +140,6 @@ private fun MedicalNotesScreen() {
             }
         }
     }
-    val context = LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val savePdf = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri: Uri? ->
         val bytes = pdfBytes
@@ -466,16 +466,16 @@ private fun summarizeWithGemini(apiKey: String, topic: String, sourceText: Strin
                 JSONObject().put("thinkingLevel", if (modelId.contains("lite")) "low" else "high")
             )
         }
-        val parts = JSONArray().put(JSONObject().put("text", prompt))
+        val requestParts = JSONArray().put(JSONObject().put("text", prompt))
         if (!imageMimeType.isNullOrBlank() && !imageBase64.isNullOrBlank()) {
-            parts.put(
+            requestParts.put(
                 JSONObject().put("inline_data",
                     JSONObject().put("mime_type", imageMimeType).put("data", imageBase64)
                 )
             )
         }
         val requestBody = JSONObject()
-            .put("contents", JSONArray().put(JSONObject().put("parts", parts)))
+            .put("contents", JSONArray().put(JSONObject().put("parts", requestParts)))
             .put("generationConfig", generationConfig)
         connection.outputStream.use { it.write(requestBody.toString().toByteArray(Charsets.UTF_8)) }
         val statusCode = connection.responseCode

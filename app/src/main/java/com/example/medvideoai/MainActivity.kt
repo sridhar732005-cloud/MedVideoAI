@@ -218,7 +218,9 @@ private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
             }
         }
         val cleanedUnits = units.map { it.trim().trimStart('•', '-', '*').trim() }.filter { it.isNotBlank() }
-        val selected = if (isDefinition || flow) cleanedUnits else selectKeySentences(name, cleanedUnits)
+        val preserveStructuredPoints = rawLines.size > 1 && rawLines.all { it.length <= 180 }
+        val preserveAllSectionPoints = name == "Etiology / Causes" || name == "Classification" || name == "Treatment" || name == "Prevention"
+        val selected = if (isDefinition || flow || preserveStructuredPoints || preserveAllSectionPoints) cleanedUnits else selectKeySentences(name, cleanedUnits)
         val finalLines = if (flow) normalizeFlowchart(selected) else selected
         if (finalLines.isEmpty()) null else NoteSection(name, finalLines, flow)
     }

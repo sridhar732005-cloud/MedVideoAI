@@ -77,6 +77,7 @@ private fun MedicalVideoScreen() {
             listOf("சிறுநீரகத்தில் சிறுநீர் உருவாகும் முறை", "How the heart pumps blood", "COPD and airway narrowing", "Meniere disease").forEach { example ->
                 OutlinedButton(onClick = { topic = example; showScenes = false }, modifier = Modifier.fillMaxWidth()) { Text(example) }
             }
+            MedicalImageLibraryPanel()
             Text("Language / மொழி")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 listOf("Tamil", "English", "Both").forEach { FilterChip(language == it, { language = it }, label = { Text(it) }) }

@@ -373,7 +373,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                             val summarized = withContext(Dispatchers.IO) {
                                 summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
-                            val parsedTopics = splitMedicalTopics(summarized, title, input.isBlank())
+                            val parsedTopics = splitMedicalTopics(summarized, title, input.isBlank(), input)
                             val safeTopics = if (parsedTopics.isNotEmpty()) parsedTopics else {
                                 listOf(formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized)))
                             }
@@ -939,7 +939,7 @@ private fun flowSectionFor(name: String): Boolean =
     name == "Mechanism of Action" || name == "Pathogenesis"
 
 
-private fun splitMedicalTopics(response: String, fallbackTopic: String, imageOnly: Boolean): List<MedicalNotes> {
+private fun splitMedicalTopics(response: String, fallbackTopic: String, imageOnly: Boolean, sourceText: String): List<MedicalNotes> {
     val marker = Regex("^\\s*===\\s*TOPIC:\\s*(.+?)\\s*===\\s*$", RegexOption.IGNORE_CASE)
     val blocks = mutableListOf<Pair<String, MutableList<String>>>()
     var currentTitle: String? = null
@@ -966,7 +966,7 @@ private fun splitMedicalTopics(response: String, fallbackTopic: String, imageOnl
     }
     return blocks.mapNotNull { (title, lines) ->
         val body = lines.joinToString("\n").trim()
-        if (body.isBlank()) null else formatMedicalNotes(title, body)
+        if (body.isBlank()) null else formatMedicalNotes(title, if (imageOnly) body else restoreExactDefinition(title, sourceText, body))
     }.distinctBy { it.topic.trim().lowercase(Locale.ROOT) }
 }
 

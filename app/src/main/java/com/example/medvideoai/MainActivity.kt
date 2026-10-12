@@ -1177,7 +1177,7 @@ private fun createInfographicBitmap(notes: MedicalNotes): android.graphics.Bitma
     val contentWidth = width - margin * 2 - 36f
     notes.sections.forEachIndexed { index, section ->
         height += 30f + 48f
-        height += section.lines.sumOf { wrap(it, bodyPaint, contentWidth - 36f).size * 35f + 12f }.toFloat()
+        height += section.lines.sumOf { lineText -> (wrap(lineText, bodyPaint, contentWidth - 36f).size * 35 + 12).toFloat() }
         if (section.flowchart && section.lines.size > 1) height += (section.lines.size - 1) * 28f
         height += gap
     }
@@ -1218,7 +1218,7 @@ private fun createInfographicBitmap(notes: MedicalNotes): android.graphics.Bitma
                 if (lineIndex < section.lines.lastIndex) {
                     val cx = width / 2f
                     val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                        color = android.graphics.Color.rgb(30, 80, 140); strokeWidth = 4f
+                        this.color = android.graphics.Color.rgb(30, 80, 140); strokeWidth = 4f
                     }
                     canvas.drawLine(cx, textY - 4f, cx, textY + 12f, arrowPaint)
                     canvas.drawText("↓", cx + 10f, textY + 22f, bodyPaint)

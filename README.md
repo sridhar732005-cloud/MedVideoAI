@@ -1,33 +1,30 @@
-# MedVideoAI
+# MedNotes PDF
 
-Native Android medical storyboard and animation prototype built with Kotlin and Jetpack Compose.
+Native Android medical-notes formatter built with Kotlin and Jetpack Compose.
 
-## Current free-mode features
+## Features
 
-- Enter medical text in Tamil or English.
-- Split text into a storyboard of up to 12 scenes.
-- Rule-based topic matching for kidney, heart, lungs, ear, brain, microbes, and eye.
-- Preview simple animated educational illustrations for each scene.
-- Export a captioned template MP4 to Movies/MedVideoAI in 30-second, 1-minute, or 3-minute durations.
-- No paid video-generation API or API key is used by the current free-mode code.
+- Accept English medical text pasted by the user.
+- Use only the text supplied by the user; no textbook lookup, translation, or added outside medical facts.
+- Organize content under headings such as Definition, Etiology/Causes, Classification, Mechanism of Action, Pathogenesis, Clinical Features, Investigations, Treatment, Complications, Prevention, and Important Points.
+- Display mechanism/pathogenesis content as a simple flowchart when the supplied text is arranged in steps or lines.
+- Preview notes and save them as a PDF through Android's system document picker.
+- Offline mode requires no API key. AI mode requires a Gemini API key and network access; any free quota or pricing depends on Google's current API terms.
 
-## Important current limitations
+## Important limitations
 
-This version uses offline keyword/rule-based matching. It is **not** a general-purpose AI model and cannot reliably understand every medical description. The illustrations are simple shapes rather than detailed anatomical images. The current MP4 export does not yet include spoken narration, imported AI images, or generated AI video. Please verify medical details against trusted medical references.
-
-## Planned improvements
-
-1. Improve medical text analysis and the scene-by-scene storyboard.
-2. Add more topic-specific medical illustrations and motion.
-3. Add Android Text-to-Speech narration and synchronize captions.
-4. Allow users to import images they generated separately, including images created in ChatGPT.
-5. Evaluate optional AI services only after checking free-tier limits, privacy, and fallback behavior. Do not assume any external image/video generation API is free.
+- **Offline mode:** scores and selects source sentences in their original order. It does not send text over the network, generate new sentences, translate, browse textbooks, or add outside medical facts.
+- **Optional AI mode:** the user may enter their own Gemini API key at runtime. The pasted text is sent to Google Gemini only when the AI button is tapped. The prompt requests source-only summarization, and the app restores the source Definition section verbatim afterward. Model output can still be wrong or omit context, so review it carefully. The key is not saved by the app.
+- The Definition section is kept verbatim after the heading/bullet marker is removed. Causes and other short structured lists are preserved as points; mechanism/pathogenesis sections are displayed as a step flowchart.
+- Both modes can omit context or miss important information. Always review the preview and compare it with the source before using notes for exams or clinical learning. This is not a substitute for medical judgment.
+- Sentence splitting is English-rule based and may not handle every abbreviation or unusual formatting perfectly.
 
 ## Build
 
 - Package: `com.example.medvideoai`
 - Use JDK 17 and Android SDK 35.
-- Open the repository in Android Studio or AndroidIDE, sync Gradle, then run `./gradlew clean assembleDebug`.
-- The debug APK is generated at `app/build/outputs/apk/debug/app-debug.apk`.
+- Open the repository in Android Studio or AndroidIDE and sync Gradle.
+- Build with `./gradlew clean assembleDebug`.
+- Debug APK output: `app/build/outputs/apk/debug/app-debug.apk`.
 
-No API key is required for free mode. Never commit API keys, `local.properties`, or signing keys to the repository.
+No API key is required. Never commit API keys, `local.properties`, or signing keys.

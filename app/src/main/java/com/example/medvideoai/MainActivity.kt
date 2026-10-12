@@ -1177,7 +1177,7 @@ private fun createInfographicBitmap(notes: MedicalNotes): android.graphics.Bitma
     val contentWidth = width - margin * 2 - 36f
     notes.sections.forEachIndexed { index, section ->
         height += 30f + 48f
-        height += section.lines.sumOf { lineText -> (wrap(lineText, bodyPaint, contentWidth - 36f).size * 35 + 12).toFloat() }
+        height += section.lines.fold(0f) { total, lineText -> total + wrap(lineText, bodyPaint, contentWidth - 36f).size.toFloat() * 35f + 12f }
         if (section.flowchart && section.lines.size > 1) height += (section.lines.size - 1) * 28f
         height += gap
     }

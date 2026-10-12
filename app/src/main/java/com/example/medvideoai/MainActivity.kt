@@ -137,6 +137,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
+    var imagePreviewMode by remember { mutableStateOf(false) }
     var selectedImage by remember { mutableStateOf<SelectedMedicalImage?>(null) }
     var imageRestoreComplete by remember { mutableStateOf(false) }
     var visualLookupBusy by remember { mutableStateOf(false) }
@@ -457,9 +458,24 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                 Card(Modifier.fillMaxWidth()) {
                     Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                            TextButton(onClick = { notes = null; status = "Returned to Home. Generated notes are preserved." }) { Text("← Home") }
-                            Text("Notes Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            TextButton(onClick = { notes = null; imagePreviewMode = false; status = "Returned to Home. Generated notes are preserved." }) { Text("← Home") }
+                            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                                TextButton(onClick = { imagePreviewMode = !imagePreviewMode }) {
+                                    Text(if (imagePreviewMode) "Text Preview" else "Image Preview")
+                                }
+                                Text("Notes Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            }
                         }
+                        if (imagePreviewMode) {
+                            val infographic = remember(generated) { createInfographicBitmap(generated) }
+                            Image(
+                                bitmap = infographic.asImageBitmap(),
+                                contentDescription = "Single-image medical infographic preview",
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 300.dp),
+                                contentScale = androidx.compose.ui.layout.ContentScale.FillWidth
+                            )
+                            Text("Single-image infographic • Scroll to read; use Text Preview to return to section cards.", style = MaterialTheme.typography.bodySmall)
+                        } else {
                         Text(generated.topic, style = MaterialTheme.typography.titleLarge, color = Color(0xFF23416E))
                         generated.sections.forEachIndexed { sectionIndex, section ->
                             val sectionColors = listOf(
@@ -579,15 +595,16 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                                 }
                             }
                         }
+                        }
                     }
                 }
                 Button(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
-                        pdfBytes = createPdf(generated, topicVisuals)
-                        savePdf.launch(safeFileName(generated.topic) + ".pdf")
+                        pdfBytes = if (imagePreviewMode) createInfographicPdf(generated) else createPdf(generated, topicVisuals)
+                        savePdf.launch(safeFileName(generated.topic) + if (imagePreviewMode) "_Infographic.pdf" else ".pdf")
                     }
-                ) { Text("Save PDF") }
+                ) { Text(if (imagePreviewMode) "Save Infographic PDF" else "Save PDF") }
             }
             if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
             Text(
@@ -1117,6 +1134,120 @@ private fun normalizeFlowchart(lines: List<String>): List<String> =
 
 private fun safeFileName(name: String): String =
     name.replace(Regex("[^A-Za-z0-9_-]+"), "_").trim('_').ifBlank { "Medical_Notes" }.take(70)
+
+
+private fun createInfographicBitmap(notes: MedicalNotes): android.graphics.Bitmap {
+    val width = 1600
+    val margin = 36f
+    val gap = 20f
+    val titlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.WHITE; textSize = 48f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        textAlign = Paint.Align.CENTER
+    }
+    val headingPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(20, 48, 85); textSize = 31f
+        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+    }
+    val bodyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = android.graphics.Color.rgb(25, 35, 50); textSize = 27f
+    }
+    val colors = intArrayOf(
+        android.graphics.Color.rgb(255, 232, 236), android.graphics.Color.rgb(220, 241, 255),
+        android.graphics.Color.rgb(231, 249, 231), android.graphics.Color.rgb(255, 244, 207),
+        android.graphics.Color.rgb(241, 231, 255), android.graphics.Color.rgb(224, 247, 246)
+    )
+    val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE; strokeWidth = 3f
+    }
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
+    fun wrap(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val result = mutableListOf<String>()
+        var line = ""
+        text.split(Regex("\\s+")).forEach { word ->
+            val candidate = if (line.isEmpty()) word else "$line $word"
+            if (paint.measureText(candidate) > maxWidth && line.isNotEmpty()) {
+                result.add(line); line = word
+            } else line = candidate
+        }
+        if (line.isNotBlank()) result.add(line)
+        return result.ifEmpty { listOf("") }
+    }
+    var height = 130f
+    val contentWidth = width - margin * 2 - 36f
+    notes.sections.forEachIndexed { index, section ->
+        height += 30f + 48f
+        height += section.lines.sumOf { wrap(it, bodyPaint, contentWidth - 36f).size * 35f + 12f }.toFloat()
+        if (section.flowchart && section.lines.size > 1) height += (section.lines.size - 1) * 28f
+        height += gap
+    }
+    height = height.coerceAtLeast(600f)
+    val bitmap = android.graphics.Bitmap.createBitmap(width, height.toInt(), android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    canvas.drawColor(android.graphics.Color.rgb(250, 252, 255))
+    fillPaint.color = android.graphics.Color.rgb(15, 61, 119)
+    canvas.drawRoundRect(margin, 20f, width - margin, 105f, 20f, 20f, fillPaint)
+    canvas.drawText(notes.topic.uppercase(Locale.ROOT).take(58), width / 2f, 77f, titlePaint)
+    var y = 130f
+    notes.sections.forEachIndexed { index, section ->
+        val color = if (section.important) android.graphics.Color.rgb(255, 224, 153) else colors[index % colors.size]
+        val left = margin
+        val right = width - margin
+        val titleLines = wrap(section.title, headingPaint, contentWidth)
+        val lineItems = section.lines.map { wrap(it, bodyPaint, contentWidth - 40f) }
+        val cardHeight = 28f + titleLines.size * 38f + 14f +
+            lineItems.sumOf { it.size * 35 + 12 }.toFloat() +
+            if (section.flowchart && section.lines.size > 1) (section.lines.size - 1) * 28f else 0f
+        fillPaint.color = color
+        canvas.drawRoundRect(left, y, right, y + cardHeight, 18f, 18f, fillPaint)
+        borderPaint.color = android.graphics.Color.rgb(105, 145, 190)
+        canvas.drawRoundRect(left, y, right, y + cardHeight, 18f, 18f, borderPaint)
+        var textY = y + 42f
+        titleLines.forEach { line ->
+            canvas.drawText(line, left + 24f, textY, headingPaint); textY += 38f
+        }
+        textY += 5f
+        section.lines.forEachIndexed { lineIndex, line ->
+            if (section.flowchart) {
+                fillPaint.color = colors[(index + lineIndex + 1) % colors.size]
+                val nodeLines = wrap(line, bodyPaint, contentWidth - 70f)
+                val nodeH = nodeLines.size * 35f + 18f
+                canvas.drawRoundRect(left + 20f, textY - 24f, right - 20f, textY + nodeH - 12f, 12f, 12f, fillPaint)
+                nodeLines.forEach { canvas.drawText(it, left + 38f, textY, bodyPaint); textY += 35f }
+                textY += 14f
+                if (lineIndex < section.lines.lastIndex) {
+                    val cx = width / 2f
+                    val arrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        color = android.graphics.Color.rgb(30, 80, 140); strokeWidth = 4f
+                    }
+                    canvas.drawLine(cx, textY - 4f, cx, textY + 12f, arrowPaint)
+                    canvas.drawText("↓", cx + 10f, textY + 22f, bodyPaint)
+                    textY += 28f
+                }
+            } else {
+                val bullet = if (section.important) "★ " else "• "
+                val wrapped = wrap(bullet + line, bodyPaint, contentWidth - 35f)
+                wrapped.forEach { canvas.drawText(it, left + 24f, textY, bodyPaint); textY += 35f }
+                textY += 12f
+            }
+        }
+        y += cardHeight + gap
+    }
+    return bitmap
+}
+
+private fun createInfographicPdf(notes: MedicalNotes): ByteArray {
+    val bitmap = createInfographicBitmap(notes)
+    val document = PdfDocument()
+    val page = document.startPage(PdfDocument.PageInfo.Builder(bitmap.width, bitmap.height, 1).create())
+    page.canvas.drawBitmap(bitmap, 0f, 0f, Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+    document.finishPage(page)
+    val output = ByteArrayOutputStream()
+    document.writeTo(output)
+    document.close()
+    bitmap.recycle()
+    return output.toByteArray()
+}
 
 private fun createPdf(notes: MedicalNotes, visuals: List<MedicalVisual> = emptyList()): ByteArray {
     val document = PdfDocument()

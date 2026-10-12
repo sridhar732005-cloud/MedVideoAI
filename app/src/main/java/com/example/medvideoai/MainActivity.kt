@@ -134,6 +134,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
     var modelMenuExpanded by remember { mutableStateOf(false) }
     var availableModels by remember { mutableStateOf(geminiModelOptions) }
     var notes by remember { mutableStateOf(draftPrefs.getString("savedNotes", null)?.let { decodeMedicalNotes(it) }) }
+    var generatedTopicNotes by remember { mutableStateOf<List<MedicalNotes>>(emptyList()) }
     var busy by remember { mutableStateOf(false) }
     var status by remember { mutableStateOf("") }
     var pdfBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -347,6 +348,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                     val input = sourceText.trim()
                     val title = topic.trim().ifBlank { inferTopic(input) }
                     notes = formatMedicalNotes(title, input)
+                    generatedTopicNotes = listOfNotNull(notes)
                     status = "Short notes created using only your text. Check the preview for context, then save the PDF."
                     busy = false
                 }
@@ -371,20 +373,12 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                             val summarized = withContext(Dispatchers.IO) {
                                 summarizeWithGemini(apiKey, title, input, selectedModel.id, picture?.mimeType, picture?.base64Data)
                             }
-                            val summaryLines = summarized.lines()
-                            val imageTitle = if (input.isBlank()) {
-                                summaryLines.firstOrNull { it.isNotBlank() }
-                                    ?.trim()
-                                    ?.removePrefix("#")
-                                    ?.trim()
-                                    ?.trimEnd(':')
-                                    ?.takeIf { it.length in 2..100 && !it.endsWith(".") }
-                                    ?: title
-                            } else title
-                            val noteBody = if (input.isBlank() && summaryLines.isNotEmpty()) {
-                                summaryLines.dropWhile { it.isBlank() }.drop(1).joinToString("\n").trim()
-                            } else restoreExactDefinition(title, input, summarized)
-                            notes = formatMedicalNotes(imageTitle, noteBody)
+                            val parsedTopics = splitMedicalTopics(summarized, title, input.isBlank())
+                            val safeTopics = if (parsedTopics.isNotEmpty()) parsedTopics else {
+                                listOf(formatMedicalNotes(title, if (input.isBlank()) summarized else restoreExactDefinition(title, input, summarized)))
+                            }
+                            generatedTopicNotes = safeTopics
+                            notes = safeTopics.first()
                             topicVisuals = emptyList()
                             visualLookupStatus = ""
                             visualLookupBusy = false
@@ -421,6 +415,23 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                                     Text(if (imagePreviewMode) "Text Preview" else "Image Preview")
                                 }
                                 Text("Notes Preview", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                        if (generatedTopicNotes.size > 1) {
+                            Text("Topics found in the reference image", style = MaterialTheme.typography.titleSmall)
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                generatedTopicNotes.forEachIndexed { topicIndex, topicNote ->
+                                    Button(
+                                        onClick = { notes = topicNote },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = androidx.compose.material3.ButtonDefaults.buttonColors(
+                                            containerColor = if (topicNote.topic == generated.topic) Color(0xFF174A82) else Color(0xFFE5EDF7),
+                                            contentColor = if (topicNote.topic == generated.topic) Color.White else Color(0xFF17365D)
+                                        )
+                                    ) {
+                                        Text("${topicIndex + 1}. ${topicNote.topic}")
+                                    }
+                                }
                             }
                         }
                         if (imagePreviewMode) {
@@ -741,7 +752,8 @@ private fun summarizeWithGeminiSingleAttempt(
         LENGTH AND COVERAGE: make medium-short, easy-to-understand exam notes. Preserve every source-listed point in the same order and keep the original count (5 symptoms means 5 concise symptom points; 10 causes means 10 cause points; 4 tests means those same 4 tests). Do not copy long source paragraphs word-for-word except the definition when legible. Rewrite explanations in simpler everyday English without changing medical meaning. Do not combine separate symptoms/causes into one point or omit any point.
         SOURCE ACCURACY: use only information visible/readable in the supplied image or pasted text. Keep a readable definition verbatim. Never invent doses, lab values, treatments, causes, symptoms, or unreadable details. Under Symptoms and Clinical Features, write each symptom/sign as one short line using simple wording; add a very brief "why it happens" explanation only when the source supports it. Keep technical terms and test names accurate, but simplify their explanation.
         INPUT ANALYSIS: inspect the complete image/text, including title, headings, subheadings, numbering, bullets, tables and diagram labels. Preserve the exact main title and each heading exactly as printed, including singular/plural, spelling, order and hierarchy. Keep "Symptoms" as "Symptoms" and never rename it to "Clinical Features"; do not rename Causes, Etiology, Stages, Classification, Investigations or Tests. Preserve every readable listed item and its order. Mark only unreadable material [unclear in source] rather than guessing.
-        OUTPUT RULES: first line is the exact source topic title. Copy headings exactly, but simplify the explanatory sentences under them; do not copy full paragraphs verbatim (except Definition). Preserve all points, numbering and sequence. Do not add external facts, references or unrelated headings. For a source-provided differentiation/comparison, use rows formatted Feature | Topic A | Topic B and simplify cell wording without changing meaning. For classification, keep exact type names and simplify explanations. For pathogenesis/mechanism, keep every source step in order and show separate boxes connected by arrows.
+        MULTIPLE MAIN TOPICS: if the supplied image/text contains two or more distinct major medical topic headings (for example Respiratory Failure and Pneumonia), split them into separate independent topic outputs. Start each topic with exactly this delimiter on its own line: === TOPIC: exact main heading ===. Then include only that topics own source headings and points until the next delimiter. Preserve the exact main heading and do not mix points between topics. If there is only one main topic, still use one delimiter. Do not treat subheadings such as Definition, Causes, Symptoms, Investigations, or Treatment as separate main topics.
+        OUTPUT RULES: after each topic delimiter, copy headings exactly, but simplify the explanatory sentences under them; do not copy full paragraphs verbatim (except Definition). Preserve all points, numbering and sequence. Do not add external facts, references or unrelated headings. For a source-provided differentiation/comparison, use rows formatted Feature | Topic A | Topic B and simplify cell wording without changing meaning. For classification, keep exact type names and simplify explanations. For pathogenesis/mechanism, keep every source step in order and show separate boxes connected by arrows.
         FLOWCHARTS: use arrows (→) whenever sequence, cause-and-effect, mechanism, progression, diagnostic decision, or treatment response is being explained. Do not force a flowchart for simple lists or definitions.
         PRIORITY: correctness and topic analysis first; concise high-yield points second; attractive formatting is handled by the app. Return notes only, no opening or closing commentary.
         TOPIC: $topic
@@ -925,6 +937,38 @@ private fun inferTopic(text: String): String {
 
 private fun flowSectionFor(name: String): Boolean =
     name == "Mechanism of Action" || name == "Pathogenesis"
+
+
+private fun splitMedicalTopics(response: String, fallbackTopic: String, imageOnly: Boolean): List<MedicalNotes> {
+    val marker = Regex("^\\s*===\\s*TOPIC:\\s*(.+?)\\s*===\\s*$", RegexOption.IGNORE_CASE)
+    val blocks = mutableListOf<Pair<String, MutableList<String>>>()
+    var currentTitle: String? = null
+    var currentLines = mutableListOf<String>()
+    response.lines().forEach { line ->
+        val match = marker.matchEntire(line)
+        if (match != null) {
+            if (currentTitle != null) blocks.add(currentTitle!! to currentLines)
+            currentTitle = match.groupValues[1].trim()
+            currentLines = mutableListOf()
+        } else if (currentTitle != null) {
+            currentLines.add(line)
+        }
+    }
+    if (currentTitle != null) blocks.add(currentTitle!! to currentLines)
+    if (blocks.isEmpty()) {
+        val lines = response.lines()
+        val title = if (imageOnly) {
+            lines.firstOrNull { it.isNotBlank() }?.trim()?.removePrefix("#")?.trim()?.trimEnd(':')
+                ?.takeIf { it.length in 2..100 && !it.endsWith(".") } ?: fallbackTopic
+        } else fallbackTopic
+        val body = if (imageOnly) lines.dropWhile { it.isBlank() }.drop(1).joinToString("\n").trim() else response
+        return listOf(formatMedicalNotes(title, body))
+    }
+    return blocks.mapNotNull { (title, lines) ->
+        val body = lines.joinToString("\n").trim()
+        if (body.isBlank()) null else formatMedicalNotes(title, body)
+    }.distinctBy { it.topic.trim().lowercase(Locale.ROOT) }
+}
 
 private fun formatMedicalNotes(topic: String, raw: String): MedicalNotes {
     val known = listOf(

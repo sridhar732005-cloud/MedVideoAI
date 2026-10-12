@@ -403,7 +403,6 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                 CircularProgressIndicator()
                 Text("Formatting notes...")
             }
-            }
             if (notes != null) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

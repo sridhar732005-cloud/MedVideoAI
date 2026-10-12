@@ -275,7 +275,6 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
             Modifier.fillMaxSize().padding(padding).padding(16.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            if (notes == null) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text("Create Medical Notes", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
                 TextButton(onClick = {
@@ -404,6 +403,32 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                 CircularProgressIndicator()
                 Text("Formatting notes...")
             }
+            }
+            if (notes != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { imagePreviewMode = true }
+                    ) { Text("Image") }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = {
+                            val selected = notes
+                            if (selected != null) {
+                                pdfBytes = createInfographicPdf(selected)
+                                savePdf.launch(safeFileName(selected.topic) + "_Infographic.pdf")
+                            }
+                        }
+                    ) { Text("PDF") }
+                    OutlinedButton(
+                        modifier = Modifier.weight(1f),
+                        onClick = { imagePreviewMode = false }
+                    ) { Text("Notes") }
+                }
             }
             notes?.let { generated ->
                 Card(Modifier.fillMaxWidth()) {

@@ -314,9 +314,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                         modifier = Modifier.size(112.dp)
                     )
                     Column {
-                        Text("Image ready for AI analysis", style = MaterialTheme.typography.titleSmall)
-                        Text(picture.mimeType, style = MaterialTheme.typography.bodySmall)
-                        Text("Image content is sent only when you tap AI Summarize.", style = MaterialTheme.typography.bodySmall)
+                        Text("Selected image", style = MaterialTheme.typography.titleSmall)
                     }
                 }
             }
@@ -327,7 +325,6 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                 label = { Text("Optional Gemini API key (not saved)") },
                 placeholder = { Text("Enter your own API key for AI summarization") }
             )
-            Text("Choose a Gemini model. Switch models if one is slow or its quota is unavailable. Free access and rate limits depend on your Google AI Studio account.", style = MaterialTheme.typography.bodySmall)
             Box(Modifier.fillMaxWidth()) {
                 TextButton(onClick = { modelMenuExpanded = true }, modifier = Modifier.fillMaxWidth()) {
                     Text("AI model: ${selectedModel.label}  ▾")
@@ -341,46 +338,6 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                     }
                 }
             }
-            TextButton(
-                enabled = apiKey.isNotBlank() && !busy,
-                onClick = {
-                    busy = true
-                    status = "Checking models available to this API key..."
-                    scope.launch {
-                        try {
-                            val models = withContext(Dispatchers.IO) { fetchAvailableGeminiModels(apiKey) }
-                            availableModels = listOf(geminiModelOptions.first()) + models
-                            if (availableModels.none { it.id == selectedModel.id }) selectedModel = availableModels.first()
-                            status = if (models.isEmpty()) {
-                                "Google returned no compatible Gemini models for this API key."
-                            } else {
-                                "Model list refreshed: ${models.size} exact model ID(s) returned by Google. Auto will try available Flash models first."
-                            }
-                        } catch (e: Exception) {
-                            status = "Could not refresh model list: ${e.message ?: "unknown error"}. Existing choices are still available."
-                        } finally {
-                            busy = false
-                        }
-                    }
-                }
-            ) { Text("Refresh models available to my API key") }
-            TextButton(
-                enabled = !busy,
-                onClick = {
-                    topic = ""
-                    sourceText = ""
-                    selectedImage = null
-                    apiKey = ""
-                    selectedModel = geminiModelOptions.first()
-                    availableModels = geminiModelOptions
-                    modelMenuExpanded = false
-                    notes = null
-                    draftPrefs.edit().clear().apply()
-                    status = "Ready for new notes."
-                    pdfBytes = null
-                }
-            ) { Text("Clear / New Notes") }
-            Text("AI mode sends the pasted text to Google Gemini only after you tap the AI button. The prompt asks it to use only your text, but outputs can still be wrong; check every medical detail. The offline button never sends text anywhere. Topic, pasted text, selected image reference, and generated notes are auto-saved on this device. The API key is held only in screen memory and is not saved by this app.", style = MaterialTheme.typography.bodySmall)
             Button(
                 enabled = sourceText.isNotBlank() && !busy,
                 modifier = Modifier.fillMaxWidth(),
@@ -606,11 +563,7 @@ private fun MedicalNotesScreen(isDarkMode: Boolean, onDarkModeChange: (Boolean) 
                     }
                 ) { Text(if (imagePreviewMode) "Save Infographic PDF" else "Save PDF") }
             }
-            if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
-            Text(
-                "Offline mode uses simple rules to select key points; AI mode gives better topic-wise analysis when available. Gemini quota and network availability can vary. Review medical details before exams.",
-                style = MaterialTheme.typography.bodySmall
-            )
+            if (notes != null && status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
